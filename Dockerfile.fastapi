@@ -1,0 +1,25 @@
+# Dockerfile.fastapi
+FROM python:3.9-buster
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    python3-dev \
+    build-essential \
+    make \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set the working directory
+WORKDIR /Users/victor/Desktop/DS/Chicago-BikeSharing
+
+# Install Prophet and other Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the application code
+COPY backend.py .
+# Expose the port FastAPI will run on
+EXPOSE 8003
+# Command to run FastAPI
+CMD ["uvicorn", "backend:app", "--host", "0.0.0.0", "--port", "8003", "--reload"]

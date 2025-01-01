@@ -1,0 +1,30 @@
+# docker-compose.yml
+# version: '3'
+services:
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile.fastapi
+    ports:
+      - "8003:8003"
+    networks:
+      - app-network
+    volumes:
+      - .:/Users/victor/Desktop/DS/Chicago-BikeSharing
+
+  streamlit:
+      build:
+        context: .
+        dockerfile: Dockerfile.streamlit
+      ports:
+        - "8503:8503"
+      depends_on:
+        - fastapi
+      networks:
+        - app-network
+      volumes:
+        - .:/Users/victor/Desktop/DS/Chicago-BikeSharing
+
+networks:
+  app-network:
+    driver: bridge

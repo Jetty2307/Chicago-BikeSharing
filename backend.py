@@ -58,6 +58,8 @@ class ForecastRequest(BaseModel):
 def root():
     return {"message": "Chicago Bike Sharing forecast API"}
 
+<<<<<<< HEAD
+=======
 
 def fit_GAM(df):
     logger.debug(f"Input DataFrame shape: {df.shape}")
@@ -69,6 +71,111 @@ def fit_GAM(df):
     model = GAM().fit(X, y)
     return model
 
+def make_prediction(df, grid, steps):
+    df = df.reset_index(drop=True)
+    last_2row = df.iloc[-2]
+    last_row = df.iloc[-1]
+    # Initialize the new DataFrame for predictions
+    forecast_data = []
+
+    # Extract initial values
+
+    # Generate predictions for the next 12 months
+
+    current_month = last_row['month'] + 1
+
+    if current_month % 3 == 1:
+        current_season = last_row['season'] + 1
+    else:
+        current_season = last_row['season']
+
+    if current_month > 12:  # Increment the year if the month exceeds 12
+        current_month = 1
+        current_year = last_row['year'] + 1
+        current_season = 0
+    else:
+        current_year = last_row['year']
+
+    current_ride_id_count = last_2row['ride_id_count']  # Use as starting value for ride_id_count_lastmonth
+    current_ride_id_count_plusmonth = last_row['ride_id_count']
+    for _ in range(steps):
+        # Prepare the input features for prediction
+        input_features = pd.DataFrame({
+            'rideable_type': [df['rideable_type'][0]],
+            'year': [current_year],
+            'month': [current_month],
+            'season': [current_season],
+            'ride_id_count_2month_ago': [current_ride_id_count],
+            'ride_id_count_lastmonth': [current_ride_id_count_plusmonth]
+        })
+
+        # Predict the ride_id_count for the current month
+        predicted_ride_id_count = grid.predict(input_features)[0]  # Extract the prediction value
+
+        # Append the forecasted data
+        forecast_data.append({
+            'rideable_type': df['rideable_type'][0],
+            'year': current_year,
+            'month': current_month,
+            'season': current_season,
+            'ride_id_count_2month_ago': current_ride_id_count,
+            'ride_id_count_lastmonth': current_ride_id_count_plusmonth,
+            'ride_id_count': predicted_ride_id_count
+        })
+
+        # Update the values for the next iteration
+        # rideable_type = 1 if rideable_type == 2 else 2
+        current_ride_id_count = current_ride_id_count_plusmonth
+        current_ride_id_count_plusmonth = predicted_ride_id_count  # Use the current prediction for the next month's lastmonth value
+
+        current_month += 1
+
+        if current_month % 3 == 1:
+            current_season += 1
+
+        if current_month > 12:  # Increment the year if the month exceeds 12
+            current_month = 1
+            current_year += 1
+            current_season = 0
+
+    # Create a DataFrame from the forecasted data
+    forecast_df = pd.DataFrame(forecast_data)
+
+    # Display the result
+
+    return forecast_df
+
+def make_time_column(forecast):
+    forecast['time'] = forecast['year'].astype(int).astype(str) + '-' + forecast['month'].astype(int).astype(str).str.zfill(2)
+def merge_columns(forecast_classic, forecast_electric):
+    make_time_column(forecast_classic)
+    make_time_column(forecast_electric)
+
+    forecast_full = pd.DataFrame()
+
+    # Iterate through columns
+    for col in forecast_classic.columns:
+        if col in ['ride_id_count', 'ride_id_count_lastmonth', 'ride_id_count_2month_ago']:
+            # Sum numeric columns
+
+            forecast_full[col] = forecast_classic[col] + forecast_electric[col]
+        else:
+            forecast_full[col] = forecast_classic[col]
+
+    return forecast_full
+>>>>>>> bb0e0abe21266e92d22ebe9257d841628fa7ed34
+
+def fit_GAM(df):
+    logger.debug(f"Input DataFrame shape: {df.shape}")
+    logger.debug(f"Columns: {df.columns}")
+    y = df['ride_id_count']
+    X = df.drop(columns=['year_month', 'ride_id_count'], axis=1)
+    logger.debug(f"Target (y) shape: {y.shape}, Features (X) shape: {X.shape}")
+    logger.debug(f"Feature preview:\n{X.head()}")
+    model = GAM().fit(X, y)
+    return model
+
+<<<<<<< HEAD
 def make_prediction(df, grid, steps):
     df = df.reset_index(drop=True)
     last_2row = df.iloc[-2]
@@ -189,6 +296,7 @@ def forecast_rides_sarima(request: ForecastRequest):
         raise HTTPException(status_code=500, detail="Error generating forecast.")
 
     d1 = {'year_month': forecasted.index.to_period('M').astype(str), 'rides': forecasted.values.astype(int)}
+
     return (to_final_pd(d1))
     # forecast = pd.DataFrame(data=d1)
 
@@ -212,6 +320,7 @@ def forecast_rides_gam(request: ForecastRequest):
     forecast_GAM = forecast_GAM[['time','ride_id_count']]
 
     d1 = {'year_month': forecast_GAM['time'], 'rides': forecast_GAM['ride_id_count'].astype(int)}
+
     return(to_final_pd(d1))
     # forecast = pd.DataFrame(data=d1)
     #
@@ -219,6 +328,7 @@ def forecast_rides_gam(request: ForecastRequest):
     #    "historical": total_rides.to_dict(orient='records'),
     #    "forecast": forecast.to_dict(orient='records') # Convert forecast to list for JSON serialization
     #}
+
 
 if __name__ == "__main__":
     import uvicorn

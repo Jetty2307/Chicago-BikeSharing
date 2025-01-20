@@ -11,14 +11,13 @@ st.title("Chicago Bike Sharing Forecast Application")
 
 # Input section
 
-#ticker = st.text_input("Enter Stock Ticker Symbol", "AAPL")
 forecast_months = st.slider("Select Months for Forecast", min_value=1, max_value=60, value=12)
 
 # Fetch data and forecast
 if st.button("Get Forecast"):
     # API Call to FastAPI Backend
 
-    response = requests.post("http://fastapi:8003/forecast_bikes", json={"steps": forecast_months})
+    response = requests.post("http://fastapi:8003/forecast_bikes_gam", json={"steps": forecast_months})
     if response.status_code == 200:
         data = response.json()
 

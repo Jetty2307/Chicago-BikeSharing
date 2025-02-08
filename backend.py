@@ -1,13 +1,19 @@
 #backend.py
 
-from typing import Annotated
-
+# from typing import Annotated
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from pygam import GAM, s, f, LogisticGAM
 import logging
 import os
+
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, make_scorer
+from sklearn.model_selection import train_test_split, GridSearchCV
+#from xgboost import XGBClassifier, XGBRegressor
+from xgboost import XGBRegressor
+from sklearn.base import BaseEstimator
+
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -20,10 +26,20 @@ import numpy as np
 
 app = FastAPI()
 
+class CustomXGBRegressor(XGBRegressor, BaseEstimator):
+    def __sklearn_tags__(self):
+        """Manually define sklearn tags to avoid attribute errors."""
+        return {
+            "non_deterministic": True,
+            "requires_positive_X": False,
+            "requires_positive_y": False,
+            "X_types": ["2darray"],
+            "poor_score": False,
+            "no_validation": False
+        }
 
 try:
     # Load the data from /Users/victor/Desktop/DS/Chicago-BikeSharing/
-
     file_path1 = "total_rides.tsv"
     file_path2 = "df_full.tsv"
     logger.debug(f"Looking for files")
@@ -35,7 +51,7 @@ try:
     df_full = df_full.reset_index(drop=True)
     if 'Unnamed: 0' in df_full.columns:  # Remove unintended index column
         df_full = df_full.drop(columns=['Unnamed: 0'])
-    logger.debug(f"df_full columns: {df_full.columns}")
+    # logger.debug(f"df_full columns: {df_full.columns}")
 
     if total_rides.empty or df_full.empty:
         raise HTTPException(status_code=400, detail="No data found in the file.")
@@ -58,18 +74,6 @@ class ForecastRequest(BaseModel):
 def root():
     return {"message": "Chicago Bike Sharing forecast API"}
 
-<<<<<<< HEAD
-=======
-
-def fit_GAM(df):
-    logger.debug(f"Input DataFrame shape: {df.shape}")
-    logger.debug(f"Columns: {df.columns}")
-    y = df['ride_id_count']
-    X = df.drop(columns=['year_month', 'ride_id_count'], axis=1)
-    logger.debug(f"Target (y) shape: {y.shape}, Features (X) shape: {X.shape}")
-    logger.debug(f"Feature preview:\n{X.head()}")
-    model = GAM().fit(X, y)
-    return model
 
 def make_prediction(df, grid, steps):
     df = df.reset_index(drop=True)
@@ -163,7 +167,37 @@ def merge_columns(forecast_classic, forecast_electric):
             forecast_full[col] = forecast_classic[col]
 
     return forecast_full
->>>>>>> bb0e0abe21266e92d22ebe9257d841628fa7ed34
+
+def fit_xgboost(df):
+    logger.debug(f"Input DataFrame shape: {df.shape}")
+    logger.debug(f"Columns: {df.columns}")
+    y = df['ride_id_count']
+    #X = pd.get_dummies(df.drop(columns=['year_month', 'ride_id_count']), drop_first=True)
+    X = df.drop(columns=['year_month', 'ride_id_count'], axis=1)
+    logger.debug(f"Target (y) shape: {y.shape}, Features (X) shape: {X.shape}")
+    logger.debug(f"Feature preview:\n{X.head()}")
+    X_train, X_valid, y_train, y_valid = train_test_split(X, y, train_size=0.8, test_size=0.2, shuffle=True,
+                                                          random_state=1)
+    param_grid = {'max_depth': [3, 4, 5],
+                  'n_estimators': [50, 100, 200, 300],
+                  'learning_rate': [0.005, 0.01, 0.05, 0.1, 0.3, 0.5],
+                  }
+
+    #rmse_scorer = make_scorer(mean_squared_error, greater_is_better=False, squared=False)
+
+    #grid = XGBRegressor(random_state=0, max_depth=3, n_estimators=100, learning_rate=0.3,
+    #                          objective='count:poisson')
+    base_score = y_train.mean()
+
+
+    grid = GridSearchCV(CustomXGBRegressor(base_score=base_score, random_state=1, objective='count:poisson'), param_grid, refit=True, n_jobs=-1)
+    grid.fit(X_train, y_train)
+    #print(grid.best_params_)
+    #grid_pred = grid.predict(X_valid)
+    #print("Mean absolute error: %s" % mean_absolute_error(y_valid, grid_pred))
+    #print("RMSE: %s" % math.sqrt(mean_squared_error(y_valid, grid_pred)))
+    #print("R2 score: %s" % r2_score(y_valid, grid_pred))
+    return grid
 
 def fit_GAM(df):
     logger.debug(f"Input DataFrame shape: {df.shape}")
@@ -175,7 +209,6 @@ def fit_GAM(df):
     model = GAM().fit(X, y)
     return model
 
-<<<<<<< HEAD
 def make_prediction(df, grid, steps):
     df = df.reset_index(drop=True)
     last_2row = df.iloc[-2]
@@ -184,7 +217,6 @@ def make_prediction(df, grid, steps):
     forecast_data = []
 
     # Extract initial values
-
     # Generate predictions for the next 12 months
 
     current_month = last_row['month'] + 1
@@ -298,13 +330,23 @@ def forecast_rides_sarima(request: ForecastRequest):
     d1 = {'year_month': forecasted.index.to_period('M').astype(str), 'rides': forecasted.values.astype(int)}
 
     return (to_final_pd(d1))
-    # forecast = pd.DataFrame(data=d1)
 
-    # Return response
-    # return {
-    #    "historical": total_rides.to_dict(orient='records'),
-    #    "forecast": forecast.to_dict(orient='records') # Convert forecast to list for JSON serialization
-    # }
+@app.post("/forecast_bikes_xgboost")
+def forecast_rides_xgboost(request: ForecastRequest):
+    try:
+        fulldata_xgboost = fit_xgboost(df_full)
+    except Exception as e:
+        logger.error(f"Error fitting XGBoost model: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fitting XGBoost model: {str(e)}")
+
+    forecast_1_xgboost = make_prediction(df_full[df_full.rideable_type == 1], fulldata_xgboost, steps=request.steps)
+    forecast_2_xgboost = make_prediction(df_full[df_full.rideable_type == 2], fulldata_xgboost, steps=request.steps)
+    forecast_xgboost = merge_columns(forecast_1_xgboost, forecast_2_xgboost)
+    forecast_xgboost = forecast_xgboost[['time','ride_id_count']]
+
+    d1 = {'year_month': forecast_xgboost['time'], 'rides': forecast_xgboost['ride_id_count'].astype(int)}
+
+    return(to_final_pd(d1))
 
 @app.post("/forecast_bikes_gam")
 def forecast_rides_gam(request: ForecastRequest):
@@ -322,12 +364,6 @@ def forecast_rides_gam(request: ForecastRequest):
     d1 = {'year_month': forecast_GAM['time'], 'rides': forecast_GAM['ride_id_count'].astype(int)}
 
     return(to_final_pd(d1))
-    # forecast = pd.DataFrame(data=d1)
-    #
-    # return {
-    #    "historical": total_rides.to_dict(orient='records'),
-    #    "forecast": forecast.to_dict(orient='records') # Convert forecast to list for JSON serialization
-    #}
 
 
 if __name__ == "__main__":

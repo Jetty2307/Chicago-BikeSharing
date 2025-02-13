@@ -40,24 +40,32 @@ class CustomXGBRegressor(XGBRegressor, BaseEstimator):
 
 try:
     # Load the data from /Users/victor/Desktop/DS/Chicago-BikeSharing/
-    file_path1 = "total_rides.tsv"
+    file_weekly = "total_rides_weekly.tsv"
+    file_monthly = "total_rides_monthly.tsv"
     file_path2 = "df_full.tsv"
     logger.debug(f"Looking for files")
-    if not os.path.exists(file_path1) or not os.path.exists(file_path2):
+    if not os.path.exists(file_weekly) or not os.path.exists(file_monthly) or not os.path.exists(file_path2):
         raise HTTPException(status_code=404, detail="Data file not found.")
 
-    total_rides = pd.read_csv(file_path1, sep='\t')
+    total_rides_weekly = pd.read_csv(file_weekly, sep='\t')
+    total_rides_monthly = pd.read_csv(file_monthly, sep='\t')
     df_full = pd.read_csv(file_path2, sep='\t', index_col=False)
     df_full = df_full.reset_index(drop=True)
     if 'Unnamed: 0' in df_full.columns:  # Remove unintended index column
         df_full = df_full.drop(columns=['Unnamed: 0'])
     # logger.debug(f"df_full columns: {df_full.columns}")
 
-    if total_rides.empty or df_full.empty:
+    if total_rides_weekly.empty or total_rides_monthly.empty or df_full.empty:
         raise HTTPException(status_code=400, detail="No data found in the file.")
 
-    total_rides = total_rides[['year_month', 'rides']]
-    total_rides_indexed = total_rides.set_index(['year_month'])
+    #total_rides = total_rides[['year_month', 'rides']]
+    #total_rides_indexed = total_rides.set_index(['year_month'])
+
+    total_rides_weekly = total_rides_weekly[['week', 'rides']]
+    total_rides_weekly_indexed = total_rides_weekly.set_index(['week'])
+
+    total_rides_monthly = total_rides_monthly[['month', 'rides']]
+    total_rides_monthly_indexed = total_rides_monthly.set_index(['month'])
 
 except HTTPException as e:
     logger.error(f"HTTP Exception: {e.detail}")
@@ -69,11 +77,10 @@ except Exception as e:
 
 class ForecastRequest(BaseModel):
     steps: int # Number of months to forecast
-
+    interval: str # weekly or monthly
 @app.get("/")
 def root():
     return {"message": "Chicago Bike Sharing forecast API"}
-
 
 def make_prediction(df, grid, steps):
     df = df.reset_index(drop=True)
@@ -284,6 +291,7 @@ def make_prediction(df, grid, steps):
 
 def make_time_column(forecast):
     forecast['time'] = forecast['year'].astype(int).astype(str) + '-' + forecast['month'].astype(int).astype(str).str.zfill(2)
+
 def merge_columns(forecast_classic, forecast_electric):
     make_time_column(forecast_classic)
     make_time_column(forecast_electric)
@@ -301,23 +309,27 @@ def merge_columns(forecast_classic, forecast_electric):
 
     return forecast_full
 
-def to_final_pd(d1):
+def to_final_pd(d1, path_nonindexed):
 
     forecast = pd.DataFrame(data=d1)
     return {
-        "historical": total_rides.to_dict(orient='records'),
+        "historical": path_nonindexed.to_dict(orient='records'),
         "forecast": forecast.to_dict(orient='records')  # Convert forecast to list for JSON serialization
     }
 
 @app.post("/forecast_bikes_sarima")
 def forecast_rides_sarima(request: ForecastRequest):
     # Prepare and fit SARIMAX model
-    try:
-        model = SARIMAX(total_rides_indexed['rides'], order=(1, 1, 1), seasonal_order=(1, 1, 1, 12))
-        results = model.fit(disp=False)
-    except Exception as e:
-        logger.error(f"Error fitting SARIMAX model: {e}")
-        raise HTTPException(status_code=500, detail="Error fitting SARIMAX model.")
+    if request.interval == "week":
+        path = total_rides_weekly_indexed
+        path_nonindexed = total_rides_weekly
+        model = SARIMAX(path['rides'], order=(1, 1, 1), seasonal_order=(1, 1, 1, 52))
+    elif request.interval == "month":
+        path = total_rides_monthly_indexed
+        path_nonindexed = total_rides_monthly
+        model = SARIMAX(path['rides'], order=(1, 1, 1), seasonal_order=(1, 1, 1, 12))
+
+    results = model.fit(disp=False)
 
     # Forecast future rides
     try:
@@ -327,9 +339,10 @@ def forecast_rides_sarima(request: ForecastRequest):
         logger.error(f"Error generating forecast: {e}")
         raise HTTPException(status_code=500, detail="Error generating forecast.")
 
-    d1 = {'year_month': forecasted.index.to_period('M').astype(str), 'rides': forecasted.values.astype(int)}
+    forecasted.index = pd.to_datetime(forecasted.index)  # Convert to DateTimeIndex
+    d1 = {request.interval: forecasted.index.astype(str), 'rides': forecasted.values.astype(int)}
 
-    return (to_final_pd(d1))
+    return (to_final_pd(d1, path_nonindexed))
 
 @app.post("/forecast_bikes_xgboost")
 def forecast_rides_xgboost(request: ForecastRequest):
@@ -344,7 +357,7 @@ def forecast_rides_xgboost(request: ForecastRequest):
     forecast_xgboost = merge_columns(forecast_1_xgboost, forecast_2_xgboost)
     forecast_xgboost = forecast_xgboost[['time','ride_id_count']]
 
-    d1 = {'year_month': forecast_xgboost['time'], 'rides': forecast_xgboost['ride_id_count'].astype(int)}
+    d1 = {request.interval: forecast_xgboost['time'], 'rides': forecast_xgboost['ride_id_count'].astype(int)}
 
     return(to_final_pd(d1))
 
@@ -361,9 +374,10 @@ def forecast_rides_gam(request: ForecastRequest):
     forecast_GAM = merge_columns(forecast_1_GAM, forecast_2_GAM)
     forecast_GAM = forecast_GAM[['time','ride_id_count']]
 
-    d1 = {'year_month': forecast_GAM['time'], 'rides': forecast_GAM['ride_id_count'].astype(int)}
+    d1 = {request.interval: forecast_GAM['time'], 'rides': forecast_GAM['ride_id_count'].astype(int)}
+    path_nonindexed = total_rides_monthly
 
-    return(to_final_pd(d1))
+    return(to_final_pd(d1, path_nonindexed))
 
 
 if __name__ == "__main__":

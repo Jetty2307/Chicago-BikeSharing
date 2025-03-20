@@ -85,155 +85,82 @@ class interval_prop:
         self.dataframe = dataframe
         self.period = period
 
+    def make_predictions(self, steps, interval, grid, rideable_type):
+
+        df = self.dataframe[self.dataframe.rideable_type == rideable_type].reset_index(drop=True)
+
+        last_2row = df.iloc[-2]
+        last_row = df.iloc[-1]
+        forecast_data = []
+
+        current_interval = last_row[interval] + 1
+
+        if current_interval % (self.period/4) == 1:
+            current_season = last_row['season'] + 1
+        else:
+            current_season = last_row['season']
+
+        if current_interval > self.period:  # Increment the year if the month exceeds 12
+            current_month = 1
+            current_year = last_row['year'] + 1
+            current_season = 0
+        else:
+            current_year = last_row['year']
+
+        current_ride_id_count = last_2row['rides']  # Use as starting value for ride_id_count_lastmonth
+        current_ride_id_count_plusinterval = last_row['rides']
+
+        for _ in range(steps):
+            # Prepare the input features for prediction
+            input_features = pd.DataFrame({
+                'rideable_type': [df['rideable_type'][0]],
+                'year': [current_year],
+                'interval': [current_interval],
+                'season': [current_season],
+                'rides_2months_ago': [current_ride_id_count],
+                'rides_lastinterval': [current_ride_id_count_plusinterval]
+            })
+
+            # Predict the ride_id_count for the current month
+            predicted_ride_id_count = grid.predict(input_features)[0]  # Extract the prediction value
+
+            # Append the forecasted data
+            forecast_data.append({
+                'rideable_type': df['rideable_type'][0],
+                'year': current_year,
+                'interval': current_interval,
+                'season': current_season,
+                'rides_2months_ago': current_ride_id_count,
+                'rides_lastinterval': current_ride_id_count_plusinterval,
+                'rides': predicted_ride_id_count
+            })
+
+            # Update the values for the next iteration
+
+            current_ride_id_count = current_ride_id_count_plusinterval
+            current_ride_id_count_plusinterval= predicted_ride_id_count  # Use the current prediction for the next month's lastmonth value
+
+            current_interval += 1
+
+            if current_interval % (self.period/4) == 1:
+                current_season += 1
+
+            if current_interval > self.period:  # Increment the year if the month exceeds 12
+                current_interval = 1
+                current_year += 1
+                current_season = 0
+
+        # Create a DataFrame from the forecasted data
+        forecast_df = pd.DataFrame(forecast_data)
+
+        # Display the result
+
+        return forecast_df
+
 
 month = interval_prop(dataframe=df_month, period=12)
 week = interval_prop(dataframe=df_week, period=52)
 
-def make_prediction_month(df, grid, steps):
-    df = df.reset_index(drop=True)
-    last_2row = df.iloc[-2]
-    last_row = df.iloc[-1]
-    # Initialize the new DataFrame for predictions
-    forecast_data = []
-
-    # Extract initial values
-    # Generate predictions for the next 12 months
-
-    current_month = last_row['month'] + 1
-
-    if current_month % 3 == 1:
-        current_season = last_row['season'] + 1
-    else:
-        current_season = last_row['season']
-
-    if current_month > 12:  # Increment the year if the month exceeds 12
-        current_month = 1
-        current_year = last_row['year'] + 1
-        current_season = 0
-    else:
-        current_year = last_row['year']
-
-    current_ride_id_count = last_2row['rides']  # Use as starting value for ride_id_count_lastmonth
-    current_ride_id_count_plusmonth = last_row['rides']
-    for _ in range(steps):
-        # Prepare the input features for prediction
-        input_features = pd.DataFrame({
-            'rideable_type': [df['rideable_type'][0]],
-            'year': [current_year],
-            'month': [current_month],
-            'season': [current_season],
-            'rides_2months_ago': [current_ride_id_count],
-            'rides_lastmonth': [current_ride_id_count_plusmonth]
-        })
-
-        # Predict the ride_id_count for the current month
-        predicted_ride_id_count = grid.predict(input_features)[0]  # Extract the prediction value
-
-        # Append the forecasted data
-        forecast_data.append({
-            'rideable_type': df['rideable_type'][0],
-            'year': current_year,
-            'month': current_month,
-            'season': current_season,
-            'rides_2months_ago': current_ride_id_count,
-            'rides_lastmonth': current_ride_id_count_plusmonth,
-            'rides': predicted_ride_id_count
-        })
-
-        # Update the values for the next iteration
-
-        current_ride_id_count = current_ride_id_count_plusmonth
-        current_ride_id_count_plusmonth = predicted_ride_id_count  # Use the current prediction for the next month's lastmonth value
-
-        current_month += 1
-
-        if current_month % 3 == 1:
-            current_season += 1
-
-        if current_month > 12:  # Increment the year if the month exceeds 12
-            current_month = 1
-            current_year += 1
-            current_season = 0
-
-    # Create a DataFrame from the forecasted data
-    forecast_df = pd.DataFrame(forecast_data)
-
-    # Display the result
-
-    return forecast_df
-
-def make_prediction_week(df, grid, steps):
-    df = df.reset_index(drop=True)
-    last_2row = df.iloc[-2]
-    last_row = df.iloc[-1]
-    # Initialize the new DataFrame for predictions
-    forecast_data = []
-
-    # Extract initial values
-    # Generate predictions for the next 12 months
-
-    current_week = last_row['week'] + 1
-
-    if current_week in [13,26,39,53]:
-        current_season = last_row['season'] + 1
-    else:
-        current_season = last_row['season']
-
-    if current_week > 52:  # Increment the year if the week exceeds 52
-        current_week = 0
-        current_year = last_row['year'] + 1
-        current_season = 0
-    else:
-        current_year = last_row['year']
-
-    current_ride_id_count = last_2row['rides']  # Use as starting value for ride_id_count_lastmonth
-    current_ride_id_count_plusweek = last_row['rides']
-    for _ in range(steps):
-        # Prepare the input features for prediction
-        input_features = pd.DataFrame({
-            'rideable_type': [df['rideable_type'][0]],
-            'year': [current_year],
-            'week': [current_week],
-            'season': [current_season],
-            'rides_2weeks_ago': [current_ride_id_count],
-            'rides_lastweek': [current_ride_id_count_plusweek]
-        })
-
-        # Predict the ride_id_count for the current month
-        predicted_ride_id_count = grid.predict(input_features)[0]  # Extract the prediction value
-
-        # Append the forecasted data
-        forecast_data.append({
-            'rideable_type': df['rideable_type'][0],
-            'year': current_year,
-            'week': current_week,
-            'season': current_season,
-            'rides_2weeks_ago': current_ride_id_count,
-            'rides_lastweek': current_ride_id_count_plusweek,
-            'rides': predicted_ride_id_count
-        })
-
-        # Update the values for the next iteration
-        # rideable_type = 1 if rideable_type == 2 else 2
-        current_ride_id_count = current_ride_id_count_plusweek
-        current_ride_id_count_plusweek = predicted_ride_id_count  # Use the current prediction for the next month's lastmonth value
-
-        current_week += 1
-
-        if current_week in [13,26,39,53]:
-            current_season += 1
-
-        if current_week > 52:  # Increment the year if the month exceeds 12
-            current_week = 0
-            current_year += 1
-            current_season = 0
-
-    # Create a DataFrame from the forecasted data
-    forecast_df = pd.DataFrame(forecast_data)
-
-    # Display the result
-    print(forecast_df)
-    return forecast_df
 
 def make_time_column(forecast, interval):
     forecast['time'] = forecast['year'].astype(int).astype(str) + '-' + \
@@ -339,9 +266,12 @@ def forecast_rides_sarima(request: ForecastRequest):
 @app.post("/forecast_bikes_xgboost")
 def forecast_rides_xgboost(request: ForecastRequest):
     if request.interval == "week":
-        df_full = df_week
+        timeframe = week
     elif request.interval == "month":
-        df_full = df_month
+        timeframe = month
+
+    df_full = timeframe.dataframe
+    path_nonindexed = df_full[[f'year_{request.interval}', 'rides']]
 
     try:
         fulldata_xgboost = fit_xgboost(df_full)
@@ -349,31 +279,32 @@ def forecast_rides_xgboost(request: ForecastRequest):
         logger.error(f"Error fitting XGBoost model: {e}")
         raise HTTPException(status_code=500, detail=f"Error fitting XGBoost model: {str(e)}")
 
-    forecast_1_xgboost = make_prediction_month(df_full[df_full.rideable_type == 1], fulldata_xgboost, steps=request.steps)
-    forecast_2_xgboost = make_prediction_month(df_full[df_full.rideable_type == 2], fulldata_xgboost, steps=request.steps)
+    forecast_1_xgboost = timeframe.make_predictions(steps=request.steps,
+                                                    interval=request.interval, grid=fulldata_xgboost, rideable_type=1)
+    forecast_2_xgboost = timeframe.make_predictions(steps=request.steps,
+                                                    interval=request.interval, grid=fulldata_xgboost, rideable_type=2)
     forecast_xgboost = merge_columns(forecast_1_xgboost, forecast_2_xgboost)
     forecast_xgboost = forecast_xgboost[['time','rides']]
 
     d1 = {f'year_{request.interval}': forecast_xgboost['time'], 'rides': forecast_xgboost['rides'].astype(int)}
 
-    return(to_final_pd(d1))
+    return(to_final_pd(d1, path_nonindexed))
 
 @app.post("/forecast_bikes_gam")
 def forecast_rides_gam(request: ForecastRequest):
     if request.interval == "week":
-        df_full = df_week
-        path_nonindexed = df_week[['year_week', 'rides']]
-
-        fulldata_GAM = fit_GAM(df_full, interval=request.interval)
-        forecast_1_GAM = make_prediction_week(df_full[df_full.rideable_type == 1], fulldata_GAM, steps=request.steps)
-        forecast_2_GAM = make_prediction_week(df_full[df_full.rideable_type == 2], fulldata_GAM, steps=request.steps)
+        timeframe = week
     elif request.interval == "month":
-        df_full = df_month
-        path_nonindexed = df_week[['year_month', 'rides']]
+        timeframe = month
 
-        fulldata_GAM = fit_GAM(df_full, interval=request.interval)
-        forecast_1_GAM = make_prediction_month(df_full[df_full.rideable_type == 1], fulldata_GAM, steps=request.steps)
-        forecast_2_GAM = make_prediction_month(df_full[df_full.rideable_type == 2], fulldata_GAM, steps=request.steps)
+    df_full = timeframe.dataframe
+    path_nonindexed = df_full[[f'year_{request.interval}', 'rides']]
+
+    fulldata_GAM = fit_GAM(df_full, interval=request.interval)
+    forecast_1_GAM = timeframe.make_prediction(steps=request.steps,
+                                               interval=request.interval, grid=fulldata_GAM, rideable_type=1)
+    forecast_2_GAM = timeframe.make_predictions(steps=request.steps,
+                                                interval=request.interval, grid=fulldata_GAM, rideable_type=2)
 
     forecast_GAM = merge_columns(forecast_1_GAM, forecast_2_GAM, interval=request.interval)
     forecast_GAM = forecast_GAM[['time','rides']]

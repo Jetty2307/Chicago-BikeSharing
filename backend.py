@@ -28,21 +28,6 @@ import numpy as np
 
 app = FastAPI()
 
-class CustomXGBRegressor(XGBRegressor, BaseEstimator, RegressorMixin):
-    def __init__(self, base_score=0.5, **kwargs):
-        super().__init__(base_score=base_score, **kwargs)
-
-'''class CustomXGBRegressor(XGBRegressor, BaseEstimator):
-    def __sklearn_tags__(self):
-        """Manually define sklearn tags to avoid attribute errors."""
-        return {
-            "non_deterministic": True,
-            "requires_positive_X": False,
-            "requires_positive_y": False,
-            "X_types": ["2darray"],
-            "poor_score": False,
-            "no_validation": False
-        } '''
 
 try:
     # Load the data from /Users/victor/Desktop/DS/Chicago-BikeSharing/

@@ -4,15 +4,10 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
 from statsmodels.tsa.statespace.sarimax import SARIMAX
-from pygam import GAM, s, f, LogisticGAM
+from models import fit_xgboost, fit_GAM
 import logging
 import os
 
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, make_scorer
-from sklearn.model_selection import train_test_split, GridSearchCV
-from xgboost import XGBClassifier, XGBRegressor
-#from xgboost import XGBRegressor
-from sklearn.base import BaseEstimator, RegressorMixin
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
@@ -184,47 +179,6 @@ def merge_columns(forecast_classic, forecast_electric, interval):
 
     return forecast_full
 
-def fit_xgboost(df, interval):
-
-
-    logger.debug(f"Input DataFrame shape: {df.shape}")
-    logger.debug(f"Columns: {df.columns}")
-    y = df['rides']
-
-    X = df[['rideable_type', 'year', f'{interval}', 'season', f'rides_2{interval}s_ago', f'rides_last{interval}']]
-    logger.debug(f"Target (y) shape: {y.shape}, Features (X) shape: {X.shape}")
-    logger.debug(f"Feature preview:\n{X.head()}")
-    X_train, X_valid, y_train, y_valid = train_test_split(X, y, train_size=0.8, test_size=0.2, shuffle=True,
-                                                          random_state=1)
-    param_grid = {'max_depth': [3, 4, 5],
-                  'n_estimators': [50, 100, 200, 300],
-                  'learning_rate': [0.005, 0.01, 0.05, 0.1, 0.3, 0.5],
-                  }
-
-    base_score = y_train.mean()
-
-    grid = GridSearchCV(
-        XGBRegressor(random_state=1, objective='count:poisson', base_score=base_score),
-        param_grid,
-        refit=True,
-        n_jobs=-1
-    )
-
-    grid.fit(X_train, y_train)
-
-    return grid
-
-def fit_GAM(df, interval):
-    logger.debug(f"Input DataFrame shape: {df.shape}")
-    logger.debug(f"Columns: {df.columns}")
-    y = df['rides']
-    # X = df.drop(columns=[f'year_{interval}', 'rides'], axis=1)
-    X = df[['rideable_type', 'year', f'{interval}', 'season', f'rides_2{interval}s_ago', f'rides_last{interval}']]
-    logger.debug(f"Target (y) shape: {y.shape}, Features (X) shape: {X.shape}")
-    logger.debug(f"Feature preview:\n{X.head()}")
-    model = GAM().fit(X, y)
-    return model
-
 def to_final_pd(d1, path_nonindexed):
 
     forecast = pd.DataFrame(data=d1)
@@ -233,13 +187,7 @@ def to_final_pd(d1, path_nonindexed):
         "forecast": forecast.to_dict(orient='records')  # Convert forecast to list for JSON serialization
     }
 
-def forecast_rides_regressive(request: ForecastRequest, model):
-    if request.interval == "week":
-        timeframe = week
-    elif request.interval == "month":
-        timeframe = month
-
-    # df_full = timeframe.dataframe
+def forecast_rides_regressive(request: ForecastRequest, model, timeframe):
 
     path = timeframe.dataframe.groupby(f'year_{request.interval}')["rides"].sum()
     path_nonindexed = path.reset_index()
@@ -284,7 +232,6 @@ def forecast_rides_sarima(request: ForecastRequest):
         logger.error(f"Error generating forecast: {e}")
         raise HTTPException(status_code=500, detail="Error generating forecast.")
 
-    #forecasted.index = pd.to_datetime(forecasted.index)  # Convert to DateTimeIndex
     d1 = {f'year_{request.interval}': forecasted.index.astype(str), 'rides': forecasted.values.astype(int)}
 
     return (to_final_pd(d1, path_nonindexed))
@@ -296,17 +243,16 @@ def forecast_rides_xgboost(request: ForecastRequest):
         raise ValueError(f"Invalid interval: {request.interval}")
 
     model = fit_xgboost(timeframe.dataframe, request.interval)
-    return forecast_rides_regressive(request, model)
+    return forecast_rides_regressive(request, model, timeframe)
 
 @app.post("/forecast_bikes_gam")
 def forecast_rides_GAM(request: ForecastRequest):
-    if request.interval == "week":
-        timeframe = week
-    elif request.interval == "month":
-        timeframe = month
+    timeframe = interval_mapping.get(request.interval)
+    if not timeframe:
+        raise ValueError(f"Invalid interval: {request.interval}")
 
     model = fit_GAM(timeframe.dataframe, request.interval)
-    return forecast_rides_regressive(request, model)
+    return forecast_rides_regressive(request, model, timeframe)
 
 if __name__ == "__main__":
     import uvicorn

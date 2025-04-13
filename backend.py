@@ -20,8 +20,6 @@ from dateutil.relativedelta import relativedelta
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-#from sklearn.model_selection import train_test_split, GridSearchCV
-#from xgboost import XGBClassifier, XGBRegressor
 
 import pandas as pd
 import numpy as np
@@ -192,8 +190,7 @@ def fit_xgboost(df, interval):
     logger.debug(f"Input DataFrame shape: {df.shape}")
     logger.debug(f"Columns: {df.columns}")
     y = df['rides']
-    #X = pd.get_dummies(df.drop(columns=['year_month', 'ride_id_count']), drop_first=True)
-    # X = df.drop(columns=[f'year_{interval}', 'rides'], axis=1)
+
     X = df[['rideable_type', 'year', f'{interval}', 'season', f'rides_2{interval}s_ago', f'rides_last{interval}']]
     logger.debug(f"Target (y) shape: {y.shape}, Features (X) shape: {X.shape}")
     logger.debug(f"Feature preview:\n{X.head()}")
@@ -204,15 +201,7 @@ def fit_xgboost(df, interval):
                   'learning_rate': [0.005, 0.01, 0.05, 0.1, 0.3, 0.5],
                   }
 
-    #rmse_scorer = make_scorer(mean_squared_error, greater_is_better=False, squared=False)
-
-    #grid = XGBRegressor(random_state=0, max_depth=3, n_estimators=100, learning_rate=0.3,
-    #                          objective='count:poisson')
     base_score = y_train.mean()
-
-
-    #grid = GridSearchCV(CustomXGBRegressor(base_score=base_score, random_state=1, objective='count:poisson'),
-    #                    param_grid, refit=True, n_jobs=-1)
 
     grid = GridSearchCV(
         XGBRegressor(random_state=1, objective='count:poisson', base_score=base_score),
@@ -222,11 +211,7 @@ def fit_xgboost(df, interval):
     )
 
     grid.fit(X_train, y_train)
-    #print(grid.best_params_)
-    #grid_pred = grid.predict(X_valid)
-    #print("Mean absolute error: %s" % mean_absolute_error(y_valid, grid_pred))
-    #print("RMSE: %s" % math.sqrt(mean_squared_error(y_valid, grid_pred)))
-    #print("R2 score: %s" % r2_score(y_valid, grid_pred))
+
     return grid
 
 def fit_GAM(df, interval):

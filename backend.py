@@ -168,6 +168,10 @@ week = interval_prop(
     date_format="%Y-%m-%d"
 )
 
+interval_mapping = {
+    "week": week,
+    "month": month
+}
 def merge_columns(forecast_classic, forecast_electric, interval):
 
     forecast_full = pd.DataFrame()
@@ -250,7 +254,7 @@ def forecast_rides_regressive(request: ForecastRequest, model):
     elif request.interval == "month":
         timeframe = month
 
-    df_full = timeframe.dataframe
+    # df_full = timeframe.dataframe
 
     path = timeframe.dataframe.groupby(f'year_{request.interval}')["rides"].sum()
     path_nonindexed = path.reset_index()
@@ -276,11 +280,9 @@ def forecast_rides_regressive(request: ForecastRequest, model):
 @app.post("/forecast_bikes_sarima")
 def forecast_rides_sarima(request: ForecastRequest):
     # Prepare and fit SARIMAX model
-    if request.interval == "week":
-        timeframe = week
-
-    elif request.interval == "month":
-        timeframe = month
+    timeframe = interval_mapping.get(request.interval)
+    if not timeframe:
+        raise ValueError(f"Invalid interval: {request.interval}")
 
     path = timeframe.dataframe.groupby(f'year_{request.interval}')["rides"].sum()
     path_nonindexed = path.reset_index()
@@ -304,10 +306,9 @@ def forecast_rides_sarima(request: ForecastRequest):
 
 @app.post("/forecast_bikes_xgboost")
 def forecast_rides_xgboost(request: ForecastRequest):
-    if request.interval == "week":
-        timeframe = week
-    elif request.interval == "month":
-        timeframe = month
+    timeframe = interval_mapping.get(request.interval)
+    if not timeframe:
+        raise ValueError(f"Invalid interval: {request.interval}")
 
     model = fit_xgboost(timeframe.dataframe, request.interval)
     return forecast_rides_regressive(request, model)

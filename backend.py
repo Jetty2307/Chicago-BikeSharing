@@ -4,7 +4,7 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
 from statsmodels.tsa.statespace.sarimax import SARIMAX
-from models import fit_xgboost, fit_GAM
+from models import train_all_models, trained_models, training_status
 import logging
 import os
 
@@ -19,8 +19,9 @@ logger = logging.getLogger(__name__)
 import pandas as pd
 import numpy as np
 
-app = FastAPI()
+# Define the request model
 
+app = FastAPI()
 
 try:
     # Load the data from /Users/victor/Desktop/DS/Chicago-BikeSharing/
@@ -49,14 +50,22 @@ except HTTPException as e:
 except Exception as e:
     logger.error(f"Unhandled exception: {e}", exc_info=True)
     raise HTTPException(status_code=500, detail="Internal Server Error")
-# Define the request model
 
 class ForecastRequest(BaseModel):
     steps: int # Number of months to forecast
     interval: str # weekly or monthly
+
 @app.get("/")
-def root():
-    return {"message": "Chicago Bike Sharing forecast API"}
+def get_training_status():
+    return training_status
+
+'''@app.on_event("startup")
+def startup_event():
+    print(">>> STARTUP EVENT TRIGGERED <<<")
+    logger.debug(f"Training models")
+    train_all_models(df_week, df_month)
+    print(">>> TRAINING COMPLETED<<<")
+    return {"Models training in process"} '''
 
 class interval_prop:
     def __init__(self, dataframe, period, offset, date_format):
@@ -163,8 +172,8 @@ week = interval_prop(
 
 interval_mapping = {
     "week": week,
-    "month": month
-}
+    "month": month}
+
 def merge_columns(forecast_classic, forecast_electric, interval):
 
     forecast_full = pd.DataFrame()
@@ -242,7 +251,11 @@ def forecast_rides_xgboost(request: ForecastRequest):
     if not timeframe:
         raise ValueError(f"Invalid interval: {request.interval}")
 
-    model = fit_xgboost(timeframe.dataframe, request.interval)
+    if training_status["status"] != "ready":
+        raise HTTPException(status_code=503, detail="Model is still training")
+    # model = fit_xgboost(timeframe.dataframe, request.interval)
+    model = trained_models[request.interval]["xgboost"]
+
     return forecast_rides_regressive(request, model, timeframe)
 
 @app.post("/forecast_bikes_gam")
@@ -251,9 +264,17 @@ def forecast_rides_GAM(request: ForecastRequest):
     if not timeframe:
         raise ValueError(f"Invalid interval: {request.interval}")
 
-    model = fit_GAM(timeframe.dataframe, request.interval)
+    if training_status["status"] != "ready":
+        raise HTTPException(status_code=503, detail="Model is still training")
+    # model = fit_GAM(timeframe.dataframe, request.interval)
+    model = trained_models[request.interval]["GAM"]
+
     return forecast_rides_regressive(request, model, timeframe)
 
 if __name__ == "__main__":
+    print(">>> STARTUP EVENT TRIGGERED <<<")
+    train_all_models(df_week, df_month)
+    print(">>> TRAINING COMPLETED<<<")
+    training_status["status"] = "ready"
     import uvicorn
-    uvicorn.run("backend:app", host="0.0.0.0", port=8003, reload=True)
+    uvicorn.run("backend:app", host="0.0.0.0", port=8003, reload=False)

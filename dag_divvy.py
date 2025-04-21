@@ -19,7 +19,7 @@ with DAG(
 
     run_download_script = BashOperator(
         task_id='run_divvy_download',
-        bash_command='python /Users/victor/Desktop/DS/Chicago-BikeSharing/divvy_download.py'
+        bash_command='source /Users/victor/miniconda3/bin/activate base && python /Users/victor/Desktop/DS/Chicago-BikeSharing/divvy_download.py'
     )
 
     run_download_script

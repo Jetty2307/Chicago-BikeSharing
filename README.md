@@ -18,4 +18,8 @@ Technical solution:
 The project consists of two parts: visualisation of most characteristic data related to usage of the bike sharing system in Chicago and construction of the predictive model for future expected usage of the system at particular dates. For both parts, the data from Divvy Tripdata are used. Information on data is available upon API requests as processed historical data (ride id, start and end station, start and end time, start and end coordinates, membership type), or as live data. 
 
 Visualization: historical and live data for Chicago bike sharing system with various types of plots, including visualization on a geographical map. Tools: Jupyter, Tableau dashboards.
-Predictive model: time series model (ARIMA), gradient boosting (xgboost) in Python, Tableau dashboards to evaluate the quality of the models by comparing predicted and actual data.
+Predictive models: time series model (ARIMA), gradient boosting (xgboost), generalized additive model (GAM)
+Data pipeline: REST API, Airflow, Pandas
+Backend: FastAPI
+Frontend: Streamlit
+Containerization: Docker

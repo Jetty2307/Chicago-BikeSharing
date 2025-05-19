@@ -19,7 +19,7 @@ The project consists of two parts: visualisation of most characteristic data rel
 
 Visualization: historical and live data for Chicago bike sharing system with various types of plots, including visualization on a geographical map. Tools: Jupyter, Tableau dashboards.
 Predictive models: time series model (ARIMA), gradient boosting (xgboost), generalized additive model (GAM)
-Data pipeline: REST API, Airflow, Pandas
+Data pipeline: REST API, Airflow, PostgreSQL, Pandas
 Backend: FastAPI
 Frontend: Streamlit
 Containerization: Docker

@@ -4,32 +4,46 @@ import numpy as np
 
 directory = "./extracted_files"
 
-dataframes_number = {}
-dataframes_divvy = {}
-i = 0
-j = 0
-for root, dirs, files in os.walk(directory):
-    for filename in files:
-        file_path = os.path.join(root, filename)
-        #print(f"File: {file_path}")
-        if filename.endswith('tripdata.csv'): #or filename.startswith('Divvy_Trips'):
-            #print(filename)
-            try:
-                df = pd.read_csv(file_path)
-                dataframes_number[i] = df
-                i += 1
-            except:
-                pass
+# dataframes_number = {}
+# dataframes_divvy = {}
+# i = 0
+# j = 0
+# for root, dirs, files in os.walk(directory):
+#     for filename in files:
+#         file_path = os.path.join(root, filename)
+#         #print(f"File: {file_path}")
+#         if filename.endswith('tripdata.csv'): #or filename.startswith('Divvy_Trips'):
+#             #print(filename)
+#             try:
+#                 df = pd.read_csv(file_path)
+#                 dataframes_number[i] = df
+#                 i += 1
+#             except:
+#                 pass
+#
+# def merge_dfs(dataframes):
+#     merged = dataframes[0]
+#     for i in range(1,len(dataframes)):
+#         merged = pd.concat([merged,dataframes[i]], axis=0, ignore_index=True)
+#     return merged
+#
+# merged_number = merge_dfs(dataframes_number)
+# merged_number.to_csv('df_merged.tsv', sep='\t')
+# df = merged_number
 
-def merge_dfs(dataframes):
-    merged = dataframes[0]
-    for i in range(1,len(dataframes)):
-        merged = pd.concat([merged,dataframes[i]], axis=0, ignore_index=True)
-    return merged
+from sqlalchemy import create_engine
+from sqlalchemy import text
 
-merged_number = merge_dfs(dataframes_number)
-merged_number.to_csv('df_merged.tsv', sep='\t')
-df = merged_number
+engine = create_engine('postgresql+psycopg2://victor@localhost:5432/my_csv_db')
+
+with engine.connect() as conn:
+    with open('dags/templates/union_all.sql', "r") as file:
+        query = file.read()
+        conn.execute(text(query))
+
+df = pd.read_sql("SELECT ride_id, rideable_type, started_at FROM merged", con=engine)
+
+print(df.head())
 
 df['started_at'] = pd.to_datetime(df['started_at'])
 df['week_temp'] = df['started_at'].dt.to_period('W').astype(str)

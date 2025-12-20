@@ -25,8 +25,8 @@ app = FastAPI()
 
 try:
     # Load the data from /Users/victor/Desktop/DS/Chicago-BikeSharing/
-    file_week = "df_week.tsv"
-    file_month = "df_month.tsv"
+    file_week = "df_week_test_sql.tsv"
+    file_month = "df_month_test_sql.tsv"
     logger.debug(f"Looking for files")
     if not os.path.exists(file_week) or not os.path.exists(file_month):
         raise HTTPException(status_code=404, detail="Data file not found.")
@@ -68,11 +68,12 @@ def startup_event():
     return {"Models training in process"} '''
 
 class interval_prop:
-    def __init__(self, dataframe, period, offset, date_format):
+    def __init__(self, dataframe, period, offset, date_format, sarima_freq):
         self.dataframe = dataframe
         self.period = period
         self.offset = offset
         self.date_format = date_format
+        self.sarima_freq = sarima_freq
 
     def add_interval(self, date_str):
         date_obj = datetime.strptime(date_str, self.date_format)
@@ -160,14 +161,16 @@ month = interval_prop(
     dataframe=df_month,
     period=12,
     offset=relativedelta(months=1),
-    date_format="%Y-%m"
+    date_format="%Y-%m",
+    sarima_freq="MS"
 )
 
 week = interval_prop(
     dataframe=df_week,
     period=52,
     offset=relativedelta(weeks=1),
-    date_format="%Y-%m-%d"
+    date_format="%Y-%m-%d",
+    sarima_freq="W-MON"
 )
 
 interval_mapping = {
@@ -218,6 +221,24 @@ def forecast_rides_regressive(request: ForecastRequest, model, timeframe):
 
     return(to_final_pd(d1, path_nonindexed))
 
+def _forecast_with_trained_model(request: ForecastRequest, model_key: str):
+    timeframe = interval_mapping.get(request.interval)
+    if not timeframe:
+        raise HTTPException(status_code=400, detail=f"Invalid interval: {request.interval}")
+
+    if training_status["status"] != "ready":
+        raise HTTPException(status_code=503, detail="Model is still training")
+
+    try:
+        model = trained_models[request.interval][model_key]
+    except KeyError:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Model '{model_key}' for interval '{request.interval}' not found"
+        )
+
+    return forecast_rides_regressive(request, model, timeframe)
+
 
 @app.post("/forecast_bikes_sarima")
 def forecast_rides_sarima(request: ForecastRequest):
@@ -226,50 +247,53 @@ def forecast_rides_sarima(request: ForecastRequest):
     if not timeframe:
         raise ValueError(f"Invalid interval: {request.interval}")
 
-    path = timeframe.dataframe.groupby(f'year_{request.interval}')["rides"].sum()
-    path_nonindexed = path.reset_index()
+    path_df = timeframe.dataframe.groupby(f'year_{request.interval}')["rides"].sum().reset_index()
 
-    model = SARIMAX(path, order=(1, 1, 1), seasonal_order=(1, 1, 1, timeframe.period))
+    path_df[f'year_{request.interval}'] = pd.to_datetime(
+        path_df[f'year_{request.interval}'],
+        format=timeframe.date_format
+    )
+
+    path_nonindexed = path_df.copy()
+    path_nonindexed[f'year_{request.interval}'] = (
+                    path_nonindexed[f'year_{request.interval}']
+                    .dt.strftime(timeframe.date_format)
+    )
+
+    path = (
+        path_df
+        .set_index(f'year_{request.interval}')["rides"]
+        .asfreq(timeframe.sarima_freq)
+    )
+
+    y = np.log1p(path)
+
+    model = SARIMAX(y, order=(1, 1, 1), seasonal_order=(1, 0, 1, timeframe.period),
+                    enforce_stationarity=False,
+                    enforce_invertibility=False)
 
     results = model.fit(disp=False)
 
+
     # Forecast future rides
     try:
-        predicted = results.get_forecast(steps=request.steps)
-        forecasted = predicted.predicted_mean
+        forecast_log = results.get_forecast(steps=request.steps).predicted_mean
+        forecast = np.expm1(forecast_log).clip(lower=0)
     except Exception as e:
         logger.error(f"Error generating forecast: {e}")
         raise HTTPException(status_code=500, detail="Error generating forecast.")
 
-    d1 = {f'year_{request.interval}': forecasted.index.astype(str), 'rides': forecasted.values.astype(int)}
+    d1 = {f'year_{request.interval}': forecast.index.strftime(timeframe.date_format), 'rides': forecast.values.round().astype(int)}
 
     return (to_final_pd(d1, path_nonindexed))
 
 @app.post("/forecast_bikes_xgboost")
 def forecast_rides_xgboost(request: ForecastRequest):
-    timeframe = interval_mapping.get(request.interval)
-    if not timeframe:
-        raise ValueError(f"Invalid interval: {request.interval}")
-
-    if training_status["status"] != "ready":
-        raise HTTPException(status_code=503, detail="Model is still training")
-    # model = fit_xgboost(timeframe.dataframe, request.interval)
-    model = trained_models[request.interval]["xgboost"]
-
-    return forecast_rides_regressive(request, model, timeframe)
+    return _forecast_with_trained_model(request, "xgboost")
 
 @app.post("/forecast_bikes_gam")
 def forecast_rides_GAM(request: ForecastRequest):
-    timeframe = interval_mapping.get(request.interval)
-    if not timeframe:
-        raise ValueError(f"Invalid interval: {request.interval}")
-
-    if training_status["status"] != "ready":
-        raise HTTPException(status_code=503, detail="Model is still training")
-    # model = fit_GAM(timeframe.dataframe, request.interval)
-    model = trained_models[request.interval]["GAM"]
-
-    return forecast_rides_regressive(request, model, timeframe)
+    return _forecast_with_trained_model(request, "GAM")
 
 if __name__ == "__main__":
     print(">>> STARTUP EVENT TRIGGERED <<<")

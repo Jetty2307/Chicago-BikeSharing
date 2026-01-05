@@ -75,14 +75,14 @@ def fetch_and_display_forecast(endpoint):
         # Create Altair chart
         st.write(f'Forecast of rides using {endpoint.removeprefix("forecast_bikes_").upper()}')
         line_chart = alt.Chart(combined_data).mark_line().encode(
-            x=alt.X(f"year_{st.session_state.selected_interval}:T", title="Month", axis=alt.Axis(format="%Y-%W", labelFontSize=18, titleFontSize=20)),
+            x=alt.X(f"year_{st.session_state.selected_interval}:T", title="Month", axis=alt.Axis(format="%Y-%m", labelFontSize=18, titleFontSize=20)),
             y=alt.Y("rides:Q", title="Number of rides", axis=alt.Axis(labelFontSize=18, titleFontSize=20)),
             color=alt.Color("type:N", legend=alt.Legend(title="Data Type", titleFontSize=20, labelFontSize=18),
                             scale=alt.Scale(domain=["Historical", "Forecast"], range=["blue", "orange"])),
             tooltip=[f"year_{st.session_state.selected_interval}:T", "rides:Q", "type:N"]
         ).properties(
-            width=700,
-            height=400,
+            width=1000,
+            height=500,
             title=alt.TitleParams("Bike Sharing in Chicago, Forecasts", fontSize=20)
         ).configure_legend(titleFontSize=16, labelFontSize=14).interactive()
 

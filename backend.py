@@ -5,6 +5,8 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from models import train_all_models, trained_models, training_status
+from dataframes_loader import load_dataframe
+from model_loader import load_xgb, load_gam
 import logging
 import os
 
@@ -23,33 +25,8 @@ import numpy as np
 
 app = FastAPI()
 
-try:
-    # Load the data from /Users/victor/Desktop/DS/Chicago-BikeSharing/
-    file_week = "df_week_test_sql.tsv"
-    file_month = "df_month_test_sql.tsv"
-    logger.debug(f"Looking for files")
-    if not os.path.exists(file_week) or not os.path.exists(file_month):
-        raise HTTPException(status_code=404, detail="Data file not found.")
-
-    df_week = pd.read_csv(file_week, sep='\t', index_col=False).reset_index(drop=True)
-    df_month = pd.read_csv(file_month, sep='\t', index_col=False).reset_index(drop=True)
-
-    if 'Unnamed: 0' in df_week.columns:  # Remove unintended index column
-        df_week = df_week.drop(columns=['Unnamed: 0'])
-
-    if 'Unnamed: 0' in df_month.columns:  # Remove unintended index column
-        df_month = df_month.drop(columns=['Unnamed: 0'])
-
-    if df_week.empty or df_month.empty:
-        raise HTTPException(status_code=400, detail="No data found in the file.")
-
-
-except HTTPException as e:
-    logger.error(f"HTTP Exception: {e.detail}")
-    raise e
-except Exception as e:
-    logger.error(f"Unhandled exception: {e}", exc_info=True)
-    raise HTTPException(status_code=500, detail="Internal Server Error")
+df_week = load_dataframe("df_week_test_sql.tsv")
+df_month = load_dataframe("df_month_test_sql.tsv")
 
 class ForecastRequest(BaseModel):
     steps: int # Number of months to forecast
@@ -58,6 +35,20 @@ class ForecastRequest(BaseModel):
 @app.get("/")
 def get_training_status():
     return training_status
+
+@app.on_event("startup")
+def load_models():
+    global MODELS
+    MODELS = {
+        'week': {
+            "xgboost": load_xgb("week"),
+            "GAM": load_gam("week")
+        },
+        'month': {
+            "xgboost": load_xgb("month"),
+            "GAM": load_gam("month")
+        }
+    }
 
 '''@app.on_event("startup")
 def startup_event():
@@ -230,7 +221,7 @@ def _forecast_with_trained_model(request: ForecastRequest, model_key: str):
         raise HTTPException(status_code=503, detail="Model is still training")
 
     try:
-        model = trained_models[request.interval][model_key]
+        model = MODELS[request.interval][model_key]
     except KeyError:
         raise HTTPException(
             status_code=500,
@@ -296,9 +287,6 @@ def forecast_rides_GAM(request: ForecastRequest):
     return _forecast_with_trained_model(request, "GAM")
 
 if __name__ == "__main__":
-    print(">>> STARTUP EVENT TRIGGERED <<<")
-    train_all_models(df_week, df_month)
-    print(">>> TRAINING COMPLETED<<<")
     training_status["status"] = "ready"
     import uvicorn
     uvicorn.run("backend:app", host="0.0.0.0", port=8003, reload=False)

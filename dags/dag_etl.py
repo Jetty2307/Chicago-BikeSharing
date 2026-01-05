@@ -178,5 +178,10 @@ with DAG('full_etl',
         bash_command='cd /Users/victor/Desktop/DS/Chicago-BikeSharing && source /Users/victor/miniconda3/bin/activate base && python read_and_transform.py'
     )
 
-    fetch_new_files >> load_csvs >> prepare_sql >> make_union_sql >> make_new_sql >> transform
+    train_models = BashOperator(
+        task_id='run_training',
+        bash_command='cd /Users/victor/Desktop/DS/Chicago-BikeSharing && source /Users/victor/miniconda3/bin/activate base && train_and_register.py'
+    )
+
+    fetch_new_files >> load_csvs >> prepare_sql >> make_union_sql >> make_new_sql >> transform >> train_models
 

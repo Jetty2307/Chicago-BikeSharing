@@ -5,6 +5,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.fastapi
+    env_file:
+      - .env
     ports:
       - "8003:8003"
     networks:

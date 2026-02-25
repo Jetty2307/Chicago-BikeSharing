@@ -21,6 +21,13 @@ if "selected_model" not in st.session_state:
 if "slider_moved" not in st.session_state:
     st.session_state.slider_moved = False  # Tracks if the slider was moved
 
+if "show_retro" not in st.session_state:
+    st.session_state.show_retro = False  # Tracks if retro forecast is run
+
+if "lookback" not in st.session_state:
+    st.session_state.lookback = 3 # default lookback
+
+
 # **Step 1: Select Interval (Weekly / Monthly)**
 with col1:
     if st.button("Weekly"):
@@ -54,7 +61,9 @@ def fetch_and_display_forecast(endpoint):
     """Fetch forecast data from FastAPI backend and display Altair chart."""
     response = requests.post(f"http://fastapi:8003/{endpoint}", json={
         "steps": st.session_state.forecast,
-        "interval": st.session_state.selected_interval
+        "interval": st.session_state.selected_interval,
+        "include_retro": st.session_state.show_retro,
+        "lookback": int(st.session_state.lookback)
     })
 
     if response.status_code == 200:
@@ -75,14 +84,14 @@ def fetch_and_display_forecast(endpoint):
         # Create Altair chart
         st.write(f'Forecast of rides using {endpoint.removeprefix("forecast_bikes_").upper()}')
         line_chart = alt.Chart(combined_data).mark_line().encode(
-            x=alt.X(f"year_{st.session_state.selected_interval}:T", title="Month", axis=alt.Axis(format="%Y-%W", labelFontSize=18, titleFontSize=20)),
+            x=alt.X(f"year_{st.session_state.selected_interval}:T", title="Month", axis=alt.Axis(format="%Y-%m", labelFontSize=18, titleFontSize=20)),
             y=alt.Y("rides:Q", title="Number of rides", axis=alt.Axis(labelFontSize=18, titleFontSize=20)),
             color=alt.Color("type:N", legend=alt.Legend(title="Data Type", titleFontSize=20, labelFontSize=18),
                             scale=alt.Scale(domain=["Historical", "Forecast"], range=["blue", "orange"])),
             tooltip=[f"year_{st.session_state.selected_interval}:T", "rides:Q", "type:N"]
         ).properties(
-            width=700,
-            height=400,
+            width=1000,
+            height=500,
             title=alt.TitleParams("Bike Sharing in Chicago, Forecasts", fontSize=20)
         ).configure_legend(titleFontSize=16, labelFontSize=14).interactive()
 
@@ -106,8 +115,29 @@ with col3:
     if st.button("XGBoost"):
         st.session_state.selected_model = "forecast_bikes_xgboost"
 
+
 # **Trigger Forecast Calculation**
 if st.session_state.selected_model:
     fetch_and_display_forecast(st.session_state.selected_model)
+
+st.subheader("Retro forecast")
+
+if st.session_state.selected_interval == "week":
+    st.session_state.lookback = st.number_input(
+        "Number of weeks to look back for retro forecast",
+        min_value=1, max_value=52, value=int(st.session_state.lookback), step=1
+    )
+else:
+    st.session_state.lookback = st.number_input(
+        "Number of weeks to look back for retro forecast",
+        min_value=1, max_value=12, value=int(st.session_state.lookback), step=1
+    )
+
+#st.divider()
+
+label = "Add retro forecast" if not st.session_state.show_retro else "Remove retro forecast"
+
+if st.button(label):
+    st.session_state.show_retro = not st.session_state.show_retro
 
 

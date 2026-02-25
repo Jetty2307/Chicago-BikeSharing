@@ -1,0 +1,66 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+.env
+.venv/
+venv/
+ENV/
+env/
+
+# =========================
+# Jupyter
+# =========================
+.ipynb
+.ipynb_checkpoints/
+.png
+
+# =========================
+# MLflow
+# =========================
+mlruns/
+mlartifacts/
+*.db
+
+# =========================
+# Models
+# =========================
+artifacts/models/*.pkl
+artifacts/models/*.joblib
+artifacts/models/*.pt
+artifacts/models/*.onnx
+
+# =========================
+# Data
+# =========================
+data/
+downloaded_zips/
+extracted_files/
+*.csv
+*.parquet
+
+# =========================
+# Airflow
+# =========================
+airflow/logs/
+airflow/airflow.db
+airflow/plugins/__pycache__/
+
+# =========================
+# Docker
+# =========================
+*.log
+docker-compose.override.yml
+
+# =========================
+# macOS / system
+# =========================
+.DS_Store
+Thumbs.db

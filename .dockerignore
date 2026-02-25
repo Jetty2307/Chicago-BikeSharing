@@ -1,0 +1,30 @@
+# --- HUGE local folders  ---
+downloaded_zips/
+extracted_files/
+extracted_files_test/
+
+# If there are nested copies, exclude anywhere too
+**/downloaded_zips/
+**/extracted_files/
+**/extracted_files_test/
+
+# --- git / caches ---
+.git/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+.DS_Store
+
+# --- envs ---
+.venv/
+venv/
+env/
+conda/
+miniconda*/
+
+# --- ML artifacts (often big) ---
+mlruns/
+models/
+artifacts/
+checkpoints/

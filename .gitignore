@@ -18,9 +18,9 @@ env/
 # =========================
 # Jupyter
 # =========================
-.ipynb
+*.ipynb
 .ipynb_checkpoints/
-.png
+*.png
 
 # =========================
 # MLflow

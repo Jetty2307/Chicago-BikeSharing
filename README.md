@@ -30,11 +30,11 @@ Project structure and data pipeline:
 3. Features engineering and training the models with their evaluation, registration and feature importance control
    - extracting features from the dataframes and their transformaion if needed
    - training and validation of XGBoost and PyGAM models for weeks and months with a new data point(s) (SARIMA is called at        the runtime)
-   - registration of the models with MLflow if on validation their performance does not detiorate
-   - evaluating the features importance with SHAP values and saving as model artefacts in MLflow regisrty
+   - registration of the models with MLflow if on validation their performance does not deteriorate
+   - evaluating the features importance with SHAP values and saving as model artefacts in MLflow registry
 5. App embedding:
-   - backend (FastAPI + Uvicorn) for taking the input for models inference and fetching the models output + SARIMA run if        called
+   - backend (FastAPI + Uvicorn) for taking the input for models inference and fetching the models output + SARIMA run if          called
    - frontend (Streamlit) for the user's selection of the model and predictions parameters and visualization of the result
      
-     The user can select a certain model and the predictions for upcoming weeks or months for a certain period of time will      be shown. 
+     The user can select a certain model and the predictions for upcoming weeks or months for a certain period of time will        be shown. 
 6. App containerization with Docker

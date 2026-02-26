@@ -15,6 +15,8 @@ from dataframes_loader import load_dataframe
 import os
 import joblib
 import tempfile
+from dotenv import load_dotenv
+load_dotenv()
 # from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 logger = logging.getLogger(__name__)
@@ -27,6 +29,7 @@ mlflow.set_experiment("bikes_rides_forecasting")
 PRIMARY_METRIC = "val_rmse"
 MAX_REL_DEGRADATION = 0.05
 LOWER_IS_BETTER = True
+
 
 def log_shap_xgb(best_model, X_background, X_explain, feature_names, prefix = 'shap'):
     explainer = shap.TreeExplainer(best_model)
@@ -311,8 +314,8 @@ def fit_GAM(df, interval):
 
     return model
 
-df_week = load_dataframe("df_week_test_sql.tsv")
-df_month = load_dataframe("df_month_test_sql.tsv")
+df_week = load_dataframe(os.environ["WEEK_FILE"])
+df_month = load_dataframe(os.environ["MONTH_FILE"])
 
 print(">>> STARTUP EVENT TRIGGERED <<<")
 train_all_models(df_week, df_month)

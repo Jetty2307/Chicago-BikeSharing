@@ -1,4 +1,4 @@
-# Chicago bikes analysis projects
+# Chicago bikes usage prediction
 
 
 Description:
@@ -11,15 +11,30 @@ Goal:
 ------
 Unlike with traditional modes of transport, the demand in bike sharing can be very flexible depending on such factors as weather, season, date, day of the week, time of the day, presence of accompanying person or persons etc. Therefore, for the operator it is important to know the potential demand at each station at a particular time instance. This knowledge may significantly improve the overall performance of the system, for example, by redistributing free bicycles among stations, charging a proper amount of electric bikes, setting reminders in the app and tuning the price of the service. The time series predictive model then must evaluate the bike usage at certain dates and at certain points with a good accuracy.
 
-Visualization of the important data from the operator may show important trends in the system performance, highlight the problems and bottlenecks, identify the most and least popular areas. It is also useful in profiling of the most typical rides in terms of time, location, duration and length and the typical users of the systems. This information would alleviate further decision on strategic development of the system, as well as collateral activities, such as marketing, special offers and campaigns etc.
 
 Technical solution: 
 ---------------------
-The project consists of two parts: visualisation of most characteristic data related to usage of the bike sharing system in Chicago and construction of the predictive model for future expected usage of the system at particular dates. For both parts, the data from Divvy Tripdata are used. Information on data is available upon API requests as processed historical data (ride id, start and end station, start and end time, start and end coordinates, membership type), or as live data. 
+The project is close to production-ready solution and based on modern industrial standards and data pipelines.
 
-Visualization: historical and live data for Chicago bike sharing system with various types of plots, including visualization on a geographical map. Tools: Jupyter, Tableau dashboards.
-Predictive models: time series model (ARIMA), gradient boosting (xgboost), generalized additive model (GAM)
-Data pipeline: REST API, Airflow, Pandas
-Backend: FastAPI
-Frontend: Streamlit
-Containerization: Docker
+From the analytical point of view, three different models are used for time series predictions: SARIMA, gradient boosting (XGBoost) and generalized additive model (PyGAM).
+
+Project structure and data pipeline:
+
+1. Data extraction, loading and transformation (ELT)
+   This step is orchestrated in Airflow and run on a monthly basis, as the data from Divvy service is updated every month. It    goes as follows:
+
+     - new data uploaded to the local host from the web with REST API requests
+     - the new data from directories is inserted to the local PostgreSQL database
+     - aggregated tables are formed for weekly and monthly bike usage depending on their type with SQL queries, as well as         Pandas dataframes we will work with
+2. Tests for ELT procedures and resulting output
+3. Features engineering and training the models with their evaluation, registration and feature importance control
+   - extracting features from the dataframes and their transformaion if needed
+   - training and validation of XGBoost and PyGAM models for weeks and months with a new data point(s) (SARIMA is called at        the runtime)
+   - registration of the models with MLflow if on validation their performance does not detiorate
+   - evaluating the features importance with SHAP values and saving as model artefacts in MLflow regisrty
+5. App embedding:
+   - backend (FastAPI + Uvicorn) for taking the input for models inference and fetching the models output + SARIMA run if        called
+   - frontend (Streamlit) for the user's selection of the model and predictions parameters and visualization of the result
+     
+     The user can select a certain model and the predictions for upcoming weeks or months for a certain period of time will      be shown. 
+6. App containerization with Docker

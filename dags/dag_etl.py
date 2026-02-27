@@ -1,224 +1,367 @@
+from __future__ import annotations
+
 from airflow import DAG
 from airflow.exceptions import AirflowSkipException
 from airflow.operators.bash import BashOperator
-from airflow.providers.postgres.operators.postgres import PostgresOperator
 from airflow.operators.python import PythonOperator
-from airflow.models import Variable, TaskInstance
+from airflow.providers.postgres.operators.postgres import PostgresOperator
+from airflow.utils.trigger_rule import TriggerRule
 
 from datetime import datetime
+from pathlib import Path
 import os
+import shutil
+import re
+import requests
+from zipfile import ZipFile
+
 import pandas as pd
 from sqlalchemy import create_engine
 from dotenv import load_dotenv
+
 load_dotenv()
 
-today = datetime.today().strftime("%Y_%m_%d")
+# ----------------------------
+# Environment / Paths
+# ----------------------------
+PROJECT_DIR = os.environ["PROJECT_DIR"]
+CONDA_PATH = os.environ["CONDA_PATH"]
+CONDA_ENV = os.environ["CONDA_ENV"]
 
-project_dir = os.environ["PROJECT_DIR"]
-conda_path = os.environ["CONDA_PATH"]
-conda_env = os.environ["CONDA_ENV"]
+DB_URL = os.environ["DB_URL"]
 
-csv_dir = os.environ["CSV_DIR"]
-db_url = os.environ["DB_URL"]
-ending = os.environ["ENDING"]
-sql_path_merge = os.environ["SQL_PATH_MERGE"]
-sql_path_chunk = os.environ["SQL_PATH_CHUNK"]
+# Final dirs (committed artifacts)
+ZIP_DIR = Path(os.environ["ZIP_DIR"])
+CSV_DIR = Path(os.environ["CSV_DIR"])
+
+# Staging root (temporary per-run workspace)
+STAGING_ROOT = ZIP_DIR / "_staging"
+
+ENDING = os.environ.get("ENDING", "-tripdata.csv")
+
+# SQL template file paths (relative to your DAG folder, used by PostgresOperator)
+SQL_PATH_MERGE = os.environ["SQL_PATH_MERGE"]
+SQL_PATH_CHUNK = os.environ["SQL_PATH_CHUNK"]
+DAG_DIR = Path(os.environ["DAG_DIR"])
+
+DIVVY_S3_URL = os.environ.get("DIVVY_S3_URL", "https://divvy-tripdata.s3.amazonaws.com")
 
 
-# csv_dir = '/Users/victor/Desktop/DS/Chicago-BikeSharing/extracted_files'
-# db_url = 'postgresql+psycopg2://victor@localhost:5432/my_csv_db'
-# ending = '-tripdata.csv'
-# sql_path_merge = '/Users/victor/airflow/dags/templates/union_all.sql'
-# sql_path_chunk = f'/Users/victor/airflow/dags/templates/last_one.sql'
+# ----------------------------
+# Tasks
+# ----------------------------
+def fetch_new_files(**context) -> dict:
+    """
+    Downloads NEW zip files into staging per-run directory, extracts CSV into staging,
+    and returns payload:
+      {
+        "run_tag": "...",
+        "staging_zip_dir": "...",
+        "staging_csv_dir": "...",
+        "zip_files": [...],
+        "csv_files": [...],
+      }
 
-def fetch_new_files():
-    from zipfile import ZipFile
-    import os
-    import re
-    import requests, io
+    "Already processed" is determined by presence of ZIP in final ZIP_DIR (committed state).
+    """
+    run_tag = (
+        str(context["run_id"])
+        .replace(":", "_")
+        .replace("+", "_")
+        .replace("/", "_")
+        .replace(" ", "_")
+    )
 
-    url = 'https://divvy-tripdata.s3.amazonaws.com'
+    staging_zip_dir = STAGING_ROOT / run_tag / "zips"
+    staging_csv_dir = STAGING_ROOT / run_tag / "csvs"
+    staging_zip_dir.mkdir(parents=True, exist_ok=True)
+    staging_csv_dir.mkdir(parents=True, exist_ok=True)
 
-    response = requests.get(url)
-    if response.status_code != 200:
-        print(f"Failed to retrieve XML page: {response.status_code}")
-        exit()
+    resp = requests.get(DIVVY_S3_URL, timeout=60)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Failed to retrieve listing page: {resp.status_code}")
 
-    zip_urls = re.findall(r'([\w\-_]+\.zip)', response.text)
+    zip_filenames = re.findall(r"([\w\-_]+\.zip)", resp.text)
+    if not zip_filenames:
+        return {
+            "run_tag": run_tag,
+            "staging_zip_dir": str(staging_zip_dir),
+            "staging_csv_dir": str(staging_csv_dir),
+            "zip_files": [],
+            "csv_files": [],
+        }
 
-    download_dir = os.environ["ZIP_DIR"]
-    extracted_dir = os.environ["EXTRACTED_DIR"]
+    ZIP_DIR.mkdir(parents=True, exist_ok=True)
+    CSV_DIR.mkdir(parents=True, exist_ok=True)
 
-    os.makedirs(download_dir, exist_ok=True)
-    os.makedirs(extracted_dir, exist_ok=True)
+    new_zip_files: list[str] = []
+    new_csv_files: list[str] = []
 
-    new_files = []
-
-    for zip_filename in zip_urls:
-        local_zip_path = os.path.join(download_dir, zip_filename)
-
-        if os.path.exists(local_zip_path):
-            print(f"Already exists, skipping : {zip_filename}")
+    for zip_name in zip_filenames:
+        # If ZIP already exists in final dir => already committed => skip
+        if (ZIP_DIR / zip_name).exists():
             continue
 
-        full_url = f"{url}/{zip_filename}"
-
-        print(f"Downloading: {full_url}")
-        zip_response = requests.get(full_url)
-        if zip_response.status_code != 200:
-            print(f"Failed to download: {full_url}")
+        zip_url = f"{DIVVY_S3_URL}/{zip_name}"
+        print(f"Downloading: {zip_url}")
+        zr = requests.get(zip_url, timeout=180)
+        if zr.status_code != 200:
+            print(f"Failed to download {zip_name}: {zr.status_code}")
             continue
 
-        with open(local_zip_path, 'wb') as f:
-            f.write(zip_response.content)
+        staging_zip_path = staging_zip_dir / zip_name
+        staging_zip_path.write_bytes(zr.content)
+        new_zip_files.append(zip_name)
 
-        target_csv_name = zip_filename.replace('.zip', '.csv')
-        target_csv_path = os.path.join(extracted_dir, target_csv_name)
-            # zip_filename = os.path.join(download_dir, zip_url.split('/')[-1])
+        # Extract first CSV and rename to "<zip>.csv" into staging csv dir
+        target_csv_name = zip_name.replace(".zip", ".csv")
+        target_csv_path = staging_csv_dir / target_csv_name
 
-        with ZipFile(local_zip_path, 'r') as zip_ref:
-            zip_contents = zip_ref.namelist()
+        try:
+            with ZipFile(staging_zip_path, "r") as zf:
+                csv_inside = [n for n in zf.namelist() if n.lower().endswith(".csv")]
+                if not csv_inside:
+                    print(f"No CSV found in {zip_name}. Skipping extraction.")
+                    continue
 
-            csv_files = [f for f in zip_contents if f.endswith('.csv')]
+                original_csv_name = csv_inside[0]
+                print(f"Extracting: {original_csv_name} -> {target_csv_name}")
 
-            if not csv_files:
-                print(f"No CSV found in {zip_filename}")
-                continue
+                with zf.open(original_csv_name) as src, open(target_csv_path, "wb") as dst:
+                    dst.write(src.read())
 
-            original_csv_name = csv_files[0]
+            new_csv_files.append(target_csv_name)
 
-            print(f"Extracting and renaming: {original_csv_name} → {target_csv_name}")
+        except Exception as e:
+            print(f"Extraction failed for {zip_name}: {e}")
+            raise
 
-            with zip_ref.open(original_csv_name) as source_file:
-                with open(target_csv_path, 'wb') as target_file:
-                    target_file.write(source_file.read())
-
-        new_files.append(target_csv_name)
-
-
-    return new_files
+    payload = {
+        "run_tag": run_tag,
+        "staging_zip_dir": str(staging_zip_dir),
+        "staging_csv_dir": str(staging_csv_dir),
+        "zip_files": new_zip_files,
+        "csv_files": new_csv_files,
+    }
+    print(f"New ZIP files: {len(new_zip_files)}")
+    print(f"New CSV files: {len(new_csv_files)}")
+    return payload
 
 
 def load_csvs(**context):
+    """
+    Loads newly extracted CSVs from staging into Postgres (one table per file).
+    """
+    engine = create_engine(DB_URL)
+    ti = context["ti"]
+    payload = ti.xcom_pull(task_ids="fetch_new_files") or {}
 
-    engine = create_engine(db_url)
-    ti: TaskInstance = context['ti']
-    new_files = ti.xcom_pull(task_ids='fetch_new_files')
+    csv_files = payload.get("csv_files", [])
+    if not csv_files:
+        raise AirflowSkipException("No new CSV files to load.")
 
-    print('hi')
-    print(new_files)
-    #for file in os.listdir(csv_dir):
-    for file in new_files:
-        if file.endswith(ending):
-            table_name = file.replace(ending,'').lower()
-            df = pd.read_csv(os.path.join(csv_dir, file),
-                )
-            df.to_sql(table_name, engine, if_exists='replace', index=False)
+    staging_csv_dir = Path(payload["staging_csv_dir"])
+
+    for fname in csv_files:
+        if not fname.endswith(ENDING):
+            continue
+
+        table_name = fname.replace(ENDING, "").lower()
+        csv_path = staging_csv_dir / fname
+        print(f"Loading {csv_path} -> table {table_name}")
+
+        df = pd.read_csv(csv_path)
+        df.to_sql(table_name, engine, if_exists="replace", index=False)
+
 
 def generate_union_sqls(**context):
-    #files = [f for f in os.listdir(csv_dir) if f.endswith(ending)]
-    ti: TaskInstance = context['ti']
-    new_files = ti.xcom_pull(task_ids='fetch_new_files')
+    """
+    Generates two SQL files based on newly loaded table names:
+    - SQL_PATH_MERGE: INSERT INTO merged ... UNION ALL SELECT ... FROM each table
+    - SQL_PATH_CHUNK: CREATE TABLE IF NOT EXISTS last_one AS ... UNION ALL SELECT ...
+    """
+    ti = context["ti"]
+    payload = ti.xcom_pull(task_ids="fetch_new_files") or {}
 
-    files = [f for f in new_files if f.endswith(ending)]
-    table_names = [f.replace(ending, '').lower() for f in files]
+    csv_files = payload.get("csv_files", [])
+    files = [f for f in csv_files if f.endswith(ENDING)]
+    table_names = [f.replace(ENDING, "").lower() for f in files]
 
     if not table_names:
-        print("No tables to include in SQL. Skipping SQL generation.")
-        raise AirflowSkipException("No tables available, skipping SQL generation.")
+        raise AirflowSkipException("No tables to include in SQL generation.")
 
-    insert_sql = "INSERT INTO merged (\n" \
-                 "ride_id, rideable_type, started_at\n" \
-                 ")\n"
-    insert_sql += "\nUNION ALL\n".join(
-        [f'SELECT '
-         f'ride_id::TEXT, '
-         f'rideable_type::TEXT, '
-         f'started_at::TIMESTAMP '
-         f'FROM "{table}"' for table in table_names]
-    ) + ";"
+    insert_sql = (
+        "INSERT INTO merged (ride_id, rideable_type, started_at)\n"
+        + "\nUNION ALL\n".join(
+            [
+                'SELECT ride_id::TEXT, rideable_type::TEXT, started_at::TIMESTAMP '
+                f'FROM "{t}"'
+                for t in table_names
+            ]
+        )
+        + ";"
+    )
 
-    union_sql = "CREATE TABLE IF NOT EXISTS last_one AS\n"
-    union_sql += "\nUNION ALL\n".join(
-        [f'SELECT '
-         f'ride_id::TEXT, '
-         f'rideable_type::TEXT, '
-         f'started_at::TIMESTAMP '
-         f'FROM "{table}"' for table in table_names]
-    ) + ";"
+    union_sql = (
+        "CREATE TABLE IF NOT EXISTS last_one AS\n"
+        + "\nUNION ALL\n".join(
+            [
+                'SELECT ride_id::TEXT, rideable_type::TEXT, started_at::TIMESTAMP '
+                f'FROM "{t}"'
+                for t in table_names
+            ]
+        )
+        + ";"
+    )
 
-    with open(sql_path_merge, 'w') as f:
-        f.write(insert_sql)
+    (DAG_DIR / SQL_PATH_MERGE).write_text(insert_sql)
+    (DAG_DIR / SQL_PATH_CHUNK).write_text(union_sql)
 
-    with open(sql_path_chunk, 'w') as f:
-        f.write(union_sql)
+    print(f"Wrote SQL: {DAG_DIR / SQL_PATH_MERGE}")
+    print(f"Wrote SQL: {DAG_DIR / SQL_PATH_CHUNK}")
 
-# def get_sql_path(**context):
-#     from datetime import datetime
-#     today = datetime.today().strftime('%Y_%m_%d')
-#     return f'templates/loaded_{today}.sql'
 
-default_args = {'start_date' : datetime(2025, 12, 10)}
+def commit_staging(**context):
+    """
+    Moves staged ZIP/CSV into final dirs (commit) only when all upstream succeeded.
+    """
+    ti = context["ti"]
+    payload = ti.xcom_pull(task_ids="fetch_new_files") or {}
 
-with DAG('full_etl',
-    schedule_interval = '@monthly',
+    staging_zip_dir = Path(payload["staging_zip_dir"])
+    staging_csv_dir = Path(payload["staging_csv_dir"])
+    zip_files = payload.get("zip_files", []) or []
+    csv_files = payload.get("csv_files", []) or []
+
+    ZIP_DIR.mkdir(parents=True, exist_ok=True)
+    CSV_DIR.mkdir(parents=True, exist_ok=True)
+
+    for z in zip_files:
+        src = staging_zip_dir / z
+        dst = ZIP_DIR / z
+        if src.exists():
+            if dst.exists():
+                dst.unlink()
+            shutil.move(str(src), str(dst))
+
+    for c in csv_files:
+        src = staging_csv_dir / c
+        dst = CSV_DIR / c
+        if src.exists():
+            if dst.exists():
+                dst.unlink()
+            shutil.move(str(src), str(dst))
+
+    # optional marker
+    run_root = STAGING_ROOT / payload["run_tag"]
+    (run_root / ".committed").write_text("ok")
+    print("Commit done.")
+
+
+def cleanup_staging(**context):
+    """
+    Always removes staging directory for this run (success or failure).
+    """
+    ti = context["ti"]
+    payload = ti.xcom_pull(task_ids="fetch_new_files") or {}
+    run_tag = payload.get("run_tag")
+    if not run_tag:
+        return
+
+    run_root = STAGING_ROOT / run_tag
+    if run_root.exists():
+        shutil.rmtree(run_root, ignore_errors=True)
+        print(f"Removed staging: {run_root}")
+
+
+# ----------------------------
+# DAG
+# ----------------------------
+default_args = {"start_date": datetime(2025, 12, 10)}
+
+with DAG(
+    dag_id="full_etl",
+    schedule_interval="@monthly",
     default_args=default_args,
-    description="Load data from divvy and transform them monthly",
+    description="Load data from Divvy and transform them monthly (staging + commit)",
     catchup=False,
-    tags=['divvy','monthly']
+    tags=["divvy", "monthly"],
 ) as dag:
 
-    fetch_new_files = PythonOperator(
-        task_id='fetch_new_files',
+    t_fetch_new_files = PythonOperator(
+        task_id="fetch_new_files",
         python_callable=fetch_new_files,
     )
 
-    load_csvs = PythonOperator(
-        task_id='load_csvs',
+    t_load_csvs = PythonOperator(
+        task_id="load_csvs",
         python_callable=load_csvs,
-        provide_context=True
+        provide_context=True,
     )
 
-    prepare_sql = PythonOperator(
-        task_id='prepare_sql',
+    t_prepare_sql = PythonOperator(
+        task_id="prepare_sql",
         python_callable=generate_union_sqls,
-        provide_context=True
+        provide_context=True,
     )
 
-    # get_sql_task = PythonOperator(
-    #     task_id='get_sql_path',
-    #     python_callable=get_sql_path,
-    # )
-
-    make_union_sql = PostgresOperator(
-        task_id='insert_into_tables',
-        postgres_conn_id='my_postgres_conn',
-        sql=sql_path_merge
+    t_insert_into_merged = PostgresOperator(
+        task_id="insert_into_tables",
+        postgres_conn_id="my_postgres_conn",
+        sql=SQL_PATH_MERGE,
     )
 
-    make_new_sql = PostgresOperator(
-        task_id='create_new_table',
-        postgres_conn_id='my_postgres_conn',
-        sql=sql_path_chunk
+    t_create_last_one = PostgresOperator(
+        task_id="create_new_table",
+        postgres_conn_id="my_postgres_conn",
+        sql=SQL_PATH_CHUNK,
     )
 
-    transform = BashOperator(
-        task_id='run_transform',
-        bash_command=f""""
-                        cd {project_dir} &&
-                        source {conda_path} {conda_env} &&
-                        python read_and_transform.py
-                        """
+    t_transform = BashOperator(
+        task_id="run_transform",
+        bash_command=(
+            f"cd {PROJECT_DIR} && "
+            f"source {CONDA_PATH} {CONDA_ENV} && "
+            f"python read_and_transform.py"
+        ),
     )
 
-    train_models = BashOperator(
-        task_id='run_training',
-        bash_command=f""""
-                        cd {project_dir} &&
-                        source {conda_path} {conda_env} &&
-                        python train_and_register.py
-                        """
+    t_train_models = BashOperator(
+        task_id="run_training",
+        bash_command=(
+            f"cd {PROJECT_DIR} && "
+            f"source {CONDA_PATH} {CONDA_ENV} && "
+            f"python train_and_register.py"
+        ),
     )
 
-    fetch_new_files >> load_csvs >> prepare_sql >> make_union_sql >> make_new_sql >> transform >> train_models
+    t_commit = PythonOperator(
+        task_id="commit_staging",
+        python_callable=commit_staging,
+        provide_context=True,
+        trigger_rule=TriggerRule.ALL_SUCCESS,
+    )
+
+    t_cleanup = PythonOperator(
+        task_id="cleanup_staging",
+        python_callable=cleanup_staging,
+        provide_context=True,
+        trigger_rule=TriggerRule.ALL_DONE,
+    )
+
+    # Main pipeline
+    (
+        t_fetch_new_files
+        >> t_load_csvs
+        >> t_prepare_sql
+        >> t_insert_into_merged
+        >> t_create_last_one
+        >> t_transform
+        >> t_train_models
+        >> t_commit
+        >> t_cleanup
+    )
+
+    # Ensure cleanup runs even if failure happens before commit
+    [t_load_csvs, t_prepare_sql, t_insert_into_merged, t_create_last_one, t_transform, t_train_models, t_commit] >> t_cleanup
 

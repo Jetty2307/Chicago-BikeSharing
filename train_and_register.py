@@ -12,7 +12,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 from xgboost import XGBRegressor
 from pygam import GAM, s, f, LogisticGAM, PoissonGAM
 from dataframes_loader import load_dataframe
-from ai_agent import make_summary
+from ai_agent import make_summary, registry_decision
 import os
 import joblib
 import tempfile
@@ -225,6 +225,13 @@ def fit_xgboost(df, interval):
         description = make_summary(model_params)
         mlflow.set_tag("performance_description", str(description))
 
+        decision = registry_decision(model_name, model_params, description)
+        mlflow.set_tag("ai_registry_decision", decision["decision"].lower())
+        mlflow.set_tag("ai_registry_reason", decision["reason"])
+        if decision["decision"] == "STOP":
+            logger.warning(f"[AI REGISTRY STOP] {model_name}: {decision['reason']}")
+            return None
+
         mlflow.xgboost.log_model(best_model, artifact_path="model")
 
         run_id = run.info.run_id
@@ -319,6 +326,13 @@ def fit_GAM(df, interval):
         description = make_summary(model_params)
         mlflow.set_tag("performance_description", str(description))
 
+        decision = registry_decision(model_name, model_params, description)
+        mlflow.set_tag("ai_registry_decision", decision["decision"].lower())
+        mlflow.set_tag("ai_registry_reason", decision["reason"])
+        if decision["decision"] == "STOP":
+            logger.warning(f"[AI REGISTRY STOP] {model_name}: {decision['reason']}")
+            return None
+
         if passed:
             log_gam_term_plots(
                 gam_model=model,
@@ -348,4 +362,3 @@ df_month = load_dataframe(os.environ["MONTH_FILE"])
 print(">>> STARTUP EVENT TRIGGERED <<<")
 train_all_models(df_week, df_month)
 print(">>> TRAINING COMPLETED<<<")
-

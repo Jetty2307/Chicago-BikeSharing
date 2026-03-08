@@ -1,4 +1,5 @@
 import os
+import json
 import requests
 from openai import OpenAI
 
@@ -20,6 +21,36 @@ tools = [{
                        "model_params": "parameters and metrics of the model (e.g., 'model_params')"}
     }
 }]
+
+def _deepseek_chat_text(model: str, messages: list, temperature=None) -> str:
+    request_payload = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+    }
+    if temperature is not None:
+        request_payload["temperature"] = temperature
+
+    try:
+        response = client_OpenAI.chat.completions.create(**request_payload)
+        return response.choices[0].message.content.strip()
+    except TypeError as exc:
+        if "by_alias" not in str(exc):
+            raise
+
+        # Fallback for SDK/pydantic incompatibility in some local environments.
+        http_response = requests.post(
+            "https://api.deepseek.com/chat/completions",
+            headers={
+                "Authorization": f"Bearer {os.getenv('DEEPSEEK_API_KEY')}",
+                "Content-Type": "application/json",
+            },
+            json=request_payload,
+            timeout=60,
+        )
+        http_response.raise_for_status()
+        return http_response.json()["choices"][0]["message"]["content"].strip()
+
 
 def performance_summary(model, model_params: dict):
     """Generates a concise summary of the model's applicability in time series analysis,
@@ -52,35 +83,11 @@ def performance_summary(model, model_params: dict):
         except requests.exceptions.RequestException:
             return performance_summary("deepseek-chat", model_params)
 
-    try:
-        response = client_OpenAI.chat.completions.create(
-            model=model,
-            temperature=0,
-            messages=[{"role": "user", "content": prompt}],
-            stream=False
-        )
-        description = response.choices[0].message.content.strip()
-    except TypeError as exc:
-        if "by_alias" not in str(exc):
-            raise
-
-        # Fallback for SDK/pydantic incompatibility in some local environments.
-        http_response = requests.post(
-            "https://api.deepseek.com/chat/completions",
-            headers={
-                "Authorization": f"Bearer {os.getenv('DEEPSEEK_API_KEY')}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "temperature": 0,
-                "messages": [{"role": "user", "content": prompt}],
-                "stream": False,
-            },
-            timeout=60,
-        )
-        http_response.raise_for_status()
-        description = http_response.json()["choices"][0]["message"]["content"].strip()
+    description = _deepseek_chat_text(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0,
+    )
 
     return f"{description}\n Provided by {model}"
 
@@ -92,28 +99,7 @@ def reflect_on_description(description: str, model_params: dict, model: str = "d
         {"role": "user", "content": f"MODEL_PARAMS_AND_METRICS: {model_params}\n\nSUMMARY:\n{description}"}
     ]
 
-    try:
-        response = client_OpenAI.chat.completions.create(
-            model=model,
-            messages=messages,
-            stream=False
-        )
-        reflection = response.choices[0].message.content.strip()
-    except TypeError as exc:
-        if "by_alias" not in str(exc):
-            raise
-
-        http_response = requests.post(
-            "https://api.deepseek.com/chat/completions",
-            headers={
-                "Authorization": f"Bearer {os.getenv('DEEPSEEK_API_KEY')}",
-                "Content-Type": "application/json",
-            },
-            json={"model": model, "messages": messages, "stream": False},
-            timeout=60,
-        )
-        http_response.raise_for_status()
-        reflection = http_response.json()["choices"][0]["message"]["content"].strip()
+    reflection = _deepseek_chat_text(model=model, messages=messages)
 
     return reflection.upper()
 
@@ -145,3 +131,31 @@ def make_summary(model_params):
     reflection = reflect_on_description(description, model_params)
     return revise_description(reflection, description, model_params)
 
+
+def registry_decision(model_params: dict, description: str, model: str = "deepseek-chat") -> dict:
+    prompt = f"""
+You are an ML registry gate.
+Decide if this model should be registered to MLflow registry.
+
+Return ONLY valid JSON:
+{{"decision":"ALLOW"|"STOP","reason":"short reason"}}
+
+MODEL_PARAMS: {model_params}
+SUMMARY: {description}
+""".strip()
+
+    messages = [{"role": "user", "content": prompt}]
+    text = _deepseek_chat_text(model=model, messages=messages)
+
+    try:
+        data = json.loads(text)
+    except Exception:
+        return {"decision": "STOP", "reason": "Invalid AI gate response"}
+
+    decision = str(data.get("decision", "STOP")).upper()
+    reason = str(data.get("reason", "No reason provided"))[:500]
+    if decision not in {"ALLOW", "STOP"}:
+        decision = "STOP"
+        reason = "Invalid decision value from AI gate"
+
+    return {"decision": decision, "reason": reason}

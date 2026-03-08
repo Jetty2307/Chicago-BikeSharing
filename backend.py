@@ -46,12 +46,24 @@ def load_models():
     global MODELS
     MODELS = {
         'week': {
-            "xgboost": load_xgb("week"),
-            "GAM": load_gam("week")
+            "xgboost": load_xgb("week")[0],
+            "GAM": load_gam("week")[0]
         },
         'month': {
-            "xgboost": load_xgb("month"),
-            "GAM": load_gam("month")
+            "xgboost": load_xgb("month")[0],
+            "GAM": load_gam("month")[0]
+        }
+    }
+
+    global DESCRIPTIONS
+    DESCRIPTIONS = {
+        'week': {
+            "xgboost": load_xgb("week")[1],
+            "GAM": load_gam("week")[1]
+        },
+        'month': {
+            "xgboost": load_xgb("month")[1],
+            "GAM": load_gam("month")[1]
         }
     }
 
@@ -187,15 +199,18 @@ def merge_columns(forecast_classic, forecast_electric, interval):
 
     return forecast_full
 
-def to_final_pd(d1, path_nonindexed):
+def to_final_pd(d1, path_nonindexed, description):
 
     forecast = pd.DataFrame(data=d1)
+    clean_description = description if description is not None else ""
+
     return {
         "historical": path_nonindexed.to_dict(orient='records'),
-        "forecast": forecast.to_dict(orient='records')  # Convert forecast to list for JSON serialization
+        "forecast": forecast.to_dict(orient='records'),
+        "description": clean_description # Convert forecast to list for JSON serialization
     }
 
-def forecast_rides_regressive(request: ForecastRequest, model, timeframe):
+def forecast_rides_regressive(request: ForecastRequest, model, timeframe, description):
 
     path = timeframe.dataframe.groupby(f'year_{request.interval}')["rides"].sum()
     path_nonindexed = path.reset_index()
@@ -215,7 +230,7 @@ def forecast_rides_regressive(request: ForecastRequest, model, timeframe):
 
     d1 = {f'year_{request.interval}': forecast_tot['time'], 'rides': forecast_tot['rides'].astype(int)}
 
-    return(to_final_pd(d1, path_nonindexed))
+    return(to_final_pd(d1, path_nonindexed, description))
 
 def _forecast_with_trained_model(request: ForecastRequest, model_key: str):
     timeframe = interval_mapping.get(request.interval)
@@ -233,7 +248,12 @@ def _forecast_with_trained_model(request: ForecastRequest, model_key: str):
             detail=f"Model '{model_key}' for interval '{request.interval}' not found"
         )
 
-    return forecast_rides_regressive(request, model, timeframe)
+    try:
+        description = DESCRIPTIONS[request.interval][model_key]
+    except:
+        description = "No performance description available"
+
+    return forecast_rides_regressive(request, model, timeframe, description)
 
 
 @app.post("/forecast_bikes_sarima")
@@ -282,7 +302,7 @@ def forecast_rides_sarima(request: ForecastRequest):
     d1 = {f'year_{request.interval}': forecast.index.strftime(timeframe.date_format),
           'rides': forecast.values.round().astype(int)}
 
-    return (to_final_pd(d1, path_nonindexed))
+    return (to_final_pd(d1, path_nonindexed, description = None))
 
 @app.post("/forecast_bikes_xgboost")
 def forecast_rides_xgboost(request: ForecastRequest):

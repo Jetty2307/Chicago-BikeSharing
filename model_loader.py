@@ -12,6 +12,11 @@ def load_xgb(interval: str):
     latest = max(versions, key=lambda v: int(v.version))
     model_uri = f"models:/{model_name}/{latest.version}"
 
+    run_id = latest.run_id
+
+    run = client.get_run(run_id)
+    tags = run.data.tags
+
     # if versions:
     #     previous_run_id = versions[0].run_id
     #     previous_metrics = client.get_run(previous_run_id).data.metrics
@@ -24,7 +29,7 @@ def load_xgb(interval: str):
     # penultimate = sorted_versions[-2] if len(sorted_versions) >= 2 else None
     # model_uri = f"models:/{model_name}/{penultimate.version}"
 
-    return mlflow.xgboost.load_model(model_uri)
+    return mlflow.xgboost.load_model(model_uri), tags.get('performance_description')
 
 def load_gam(interval: str):
     # Load the GAM model from MLflow model registry
@@ -38,6 +43,11 @@ def load_gam(interval: str):
 
     local_path = mlflow.artifacts.download_artifacts(model_uri)
 
-    return joblib.load(f"{local_path}/gam_model_{interval}.pkl")
+    run_id = latest.run_id
+
+    run = client.get_run(run_id)
+    tags = run.data.tags
+
+    return joblib.load(f"{local_path}/gam_model_{interval}.pkl"), tags.get('performance_description')
 
 training_status = {"status": "ready"}

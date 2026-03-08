@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ChangeListManager">
+    <list default="true" id="a5246a96-4764-40af-a274-7624a5185a85" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/ai_agent.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.env" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend copy.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/df_month_test_sql.tsv" beforeDir="false" afterPath="$PROJECT_DIR$/df_month_test_sql.tsv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/df_week_test_sql.tsv" beforeDir="false" afterPath="$PROJECT_DIR$/df_week_test_sql.tsv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/extracted_files_test/Divvy_Stations_2014-Q1Q2.xlsx" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extracted_files_test/Divvy_Stations_2014_Q1Q2.shp.zip" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extracted_files_test/Divvy_Stations_Trips_2013/Divvy_Stations_2013.shp.zip" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extracted_files_test/Divvy_Stations_Trips_2013/README.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extracted_files_test/Divvy_Stations_Trips_2014_Q3Q4/Divvy_Stations_2014_Q3Q4.zip" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extracted_files_test/Divvy_Stations_Trips_2014_Q3Q4/README.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extracted_files_test/Divvy_Trips_2016_Q1Q2/README.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extracted_files_test/README.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extracted_files_test/README_2016_Q3.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extracted_files_test/README_2016_Q4.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend.py" beforeDir="false" afterPath="$PROJECT_DIR$/frontend.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/model_loader.py" beforeDir="false" afterPath="$PROJECT_DIR$/model_loader.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/train_and_register.py" beforeDir="false" afterPath="$PROJECT_DIR$/train_and_register.py" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="MarkdownSettingsMigration">
+    <option name="stateVersion" value="1" />
+  </component>
+  <component name="ProjectId" id="3AaHdQLYd7dyc3X13B7hZJC1wP0" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "RunOnceActivity.OpenProjectViewOnStart": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true"
+  }
+}]]></component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="a5246a96-4764-40af-a274-7624a5185a85" name="Changes" comment="" />
+      <created>1772823848223</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1772823848223</updated>
+    </task>
+    <servers />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+</project>

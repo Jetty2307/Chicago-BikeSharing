@@ -72,6 +72,7 @@ def fetch_and_display_forecast(endpoint):
         # Convert historical and forecast data
         historical = pd.DataFrame(data["historical"])
         forecast = pd.DataFrame(data["forecast"])
+        description = str(data["description"])
 
         # Combine and mark data types
         historical["type"] = "Historical"
@@ -97,6 +98,10 @@ def fetch_and_display_forecast(endpoint):
 
         st.altair_chart(line_chart, use_container_width=True)
 
+        if description:
+            st.markdown(f"Forecast analysis")
+            st.info(description)
+
     else:
         st.error("Error fetching data. Please check the data.")
 
@@ -120,18 +125,18 @@ with col3:
 if st.session_state.selected_model:
     fetch_and_display_forecast(st.session_state.selected_model)
 
-st.subheader("Retro forecast")
-
-if st.session_state.selected_interval == "week":
-    st.session_state.lookback = st.number_input(
-        "Number of weeks to look back for retro forecast",
-        min_value=1, max_value=52, value=int(st.session_state.lookback), step=1
-    )
-else:
-    st.session_state.lookback = st.number_input(
-        "Number of weeks to look back for retro forecast",
-        min_value=1, max_value=12, value=int(st.session_state.lookback), step=1
-    )
+# st.subheader("Retro forecast")
+#
+# if st.session_state.selected_interval == "week":
+#     st.session_state.lookback = st.number_input(
+#         "Number of weeks to look back for retro forecast",
+#         min_value=1, max_value=52, value=int(st.session_state.lookback), step=1
+#     )
+# else:
+#     st.session_state.lookback = st.number_input(
+#         "Number of weeks to look back for retro forecast",
+#         min_value=1, max_value=12, value=int(st.session_state.lookback), step=1
+#     )
 
 #st.divider()
 

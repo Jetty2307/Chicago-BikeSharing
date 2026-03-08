@@ -12,9 +12,11 @@ from sklearn.metrics import mean_squared_error, r2_score
 from xgboost import XGBRegressor
 from pygam import GAM, s, f, LogisticGAM, PoissonGAM
 from dataframes_loader import load_dataframe
+from ai_agent import make_summary, registry_decision
 import os
 import joblib
 import tempfile
+
 from dotenv import load_dotenv
 load_dotenv()
 # from statsmodels.tsa.statespace.sarimax import SARIMAX
@@ -209,6 +211,27 @@ def fit_xgboost(df, interval):
             logger.warning(f"[GATE FAIL] {model_name}: val_rmse={val_rmse:.4f} worse than baseline={baseline_rmse:.4f}")
             return None
 
+        model_params = {'model_type': 'xgboost',
+                        'interval': interval,
+                        'sample size': len(X_train),
+                        'features size': X_train.shape[1],
+                        'mean': np.mean(y_train),
+                        'max_depth': best_model.max_depth,
+                        'n_estimators': best_model.n_estimators,
+                        'learning_rate': best_model.learning_rate,
+                        'rmse': val_rmse,
+                        'r2': val_r2}
+
+        description = make_summary(model_params)
+        mlflow.set_tag("performance_description", str(description))
+
+        decision = registry_decision(model_name, model_params, description)
+        mlflow.set_tag("ai_registry_decision", decision["decision"].lower())
+        mlflow.set_tag("ai_registry_reason", decision["reason"])
+        if decision["decision"] == "STOP":
+            logger.warning(f"[AI REGISTRY STOP] {model_name}: {decision['reason']}")
+            return None
+
         mlflow.xgboost.log_model(best_model, artifact_path="model")
 
         run_id = run.info.run_id
@@ -292,6 +315,24 @@ def fit_GAM(df, interval):
             logger.warning(f"[GATE FAIL] {model_name}: val_rmse={val_rmse:.4f} worse than baseline={baseline_rmse:.4f}")
             return None
 
+        model_params = {'model_type': 'Generalized Additive Model',
+                        'interval': interval,
+                        'sample size': len(X_train),
+                        'features size': len(model.terms),
+                        'mean': np.mean(y_train),
+                        'rmse': val_rmse,
+                        'r2': val_r2}
+
+        description = make_summary(model_params)
+        mlflow.set_tag("performance_description", str(description))
+
+        decision = registry_decision(model_name, model_params, description)
+        mlflow.set_tag("ai_registry_decision", decision["decision"].lower())
+        mlflow.set_tag("ai_registry_reason", decision["reason"])
+        if decision["decision"] == "STOP":
+            logger.warning(f"[AI REGISTRY STOP] {model_name}: {decision['reason']}")
+            return None
+
         if passed:
             log_gam_term_plots(
                 gam_model=model,
@@ -299,6 +340,7 @@ def fit_GAM(df, interval):
                 X_train=X_train,
                 prefix=f"gam_{interval}",
             )
+
 
         model_path = f"gam_model_{interval}.pkl"
         joblib.dump(model, model_path)
@@ -320,4 +362,3 @@ df_month = load_dataframe(os.environ["MONTH_FILE"])
 print(">>> STARTUP EVENT TRIGGERED <<<")
 train_all_models(df_week, df_month)
 print(">>> TRAINING COMPLETED<<<")
-

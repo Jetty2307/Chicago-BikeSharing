@@ -75,7 +75,7 @@ def startup_event():
     print(">>> TRAINING COMPLETED<<<")
     return {"Models training in process"} '''
 
-class interval_prop:
+class Interval_prop:
     def __init__(self, dataframe, period, offset, date_format, sarima_freq):
         self.dataframe = dataframe
         self.period = period
@@ -165,7 +165,7 @@ class interval_prop:
         return forecast_df
 
 
-month = interval_prop(
+month = Interval_prop(
     dataframe=df_month,
     period=12,
     offset=relativedelta(months=1),
@@ -173,7 +173,7 @@ month = interval_prop(
     sarima_freq="MS"
 )
 
-week = interval_prop(
+week = Interval_prop(
     dataframe=df_week,
     period=52,
     offset=relativedelta(weeks=1),

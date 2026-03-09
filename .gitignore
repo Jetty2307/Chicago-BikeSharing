@@ -54,6 +54,13 @@ airflow/airflow.db
 airflow/plugins/__pycache__/
 
 # =========================
+# dbt
+# =========================
+target/
+dbt_packages/
+logs/
+
+# =========================
 # Docker
 # =========================
 *.log

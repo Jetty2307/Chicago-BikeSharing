@@ -45,6 +45,7 @@ SQL_PATH_CHUNK = os.environ["SQL_PATH_CHUNK"]
 DAG_DIR = Path(os.environ["DAG_DIR"])
 
 DIVVY_S3_URL = os.environ.get("DIVVY_S3_URL", "https://divvy-tripdata.s3.amazonaws.com")
+DBT_PROJECT_DIR = f"{PROJECT_DIR}/dbt/chicago_bike_dbt"
 
 
 # ----------------------------
@@ -326,6 +327,24 @@ with DAG(
         ),
     )
 
+    t_dbt_run = BashOperator(
+        task_id="dbt_run",
+        bash_command=(
+            f"cd {DBT_PROJECT_DIR} && "
+            f"source {CONDA_PATH} {CONDA_ENV} && "
+            "dbt run"
+        ),
+    )
+
+    t_dbt_test = BashOperator(
+        task_id="dbt_test",
+        bash_command=(
+            f"cd {DBT_PROJECT_DIR} && "
+            f"source {CONDA_PATH} {CONDA_ENV} && "
+            "dbt test"
+        ),
+    )
+
     t_train_models = BashOperator(
         task_id="run_training",
         bash_command=(
@@ -356,6 +375,8 @@ with DAG(
         >> t_prepare_sql
         >> t_insert_into_merged
         >> t_create_last_one
+        >> t_dbt_run
+        >> t_dbt_test
         >> t_transform
         >> t_train_models
         >> t_commit
@@ -363,5 +384,14 @@ with DAG(
     )
 
     # Ensure cleanup runs even if failure happens before commit
-    [t_load_csvs, t_prepare_sql, t_insert_into_merged, t_create_last_one, t_transform, t_train_models, t_commit] >> t_cleanup
-
+    [
+        t_load_csvs,
+        t_prepare_sql,
+        t_insert_into_merged,
+        t_create_last_one,
+        t_dbt_run,
+        t_dbt_test,
+        t_transform,
+        t_train_models,
+        t_commit,
+    ] >> t_cleanup

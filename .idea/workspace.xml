@@ -2,25 +2,10 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="a5246a96-4764-40af-a274-7624a5185a85" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/ai_agent.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.env" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend copy.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/df_month_test_sql.tsv" beforeDir="false" afterPath="$PROJECT_DIR$/df_month_test_sql.tsv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/df_week_test_sql.tsv" beforeDir="false" afterPath="$PROJECT_DIR$/df_week_test_sql.tsv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/extracted_files_test/Divvy_Stations_2014-Q1Q2.xlsx" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/extracted_files_test/Divvy_Stations_2014_Q1Q2.shp.zip" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/extracted_files_test/Divvy_Stations_Trips_2013/Divvy_Stations_2013.shp.zip" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/extracted_files_test/Divvy_Stations_Trips_2013/README.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/extracted_files_test/Divvy_Stations_Trips_2014_Q3Q4/Divvy_Stations_2014_Q3Q4.zip" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/extracted_files_test/Divvy_Stations_Trips_2014_Q3Q4/README.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/extracted_files_test/Divvy_Trips_2016_Q1Q2/README.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/extracted_files_test/README.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/extracted_files_test/README_2016_Q3.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/extracted_files_test/README_2016_Q4.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend.py" beforeDir="false" afterPath="$PROJECT_DIR$/frontend.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/model_loader.py" beforeDir="false" afterPath="$PROJECT_DIR$/model_loader.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/train_and_register.py" beforeDir="false" afterPath="$PROJECT_DIR$/train_and_register.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/Chicago-BikeSharing.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/Chicago-BikeSharing.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dags/dag_etl.py" beforeDir="false" afterPath="$PROJECT_DIR$/dags/dag_etl.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/read_and_transform.py" beforeDir="false" afterPath="$PROJECT_DIR$/read_and_transform.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -38,12 +23,36 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "RunOnceActivity.OpenProjectViewOnStart": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;
   }
-}]]></component>
+}</component>
+  <component name="RunManager">
+    <configuration name="backend" type="PythonConfigurationType" factoryName="Python" nameIsGenerated="true">
+      <module name="Chicago-BikeSharing" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/backend.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+  </component>
   <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">

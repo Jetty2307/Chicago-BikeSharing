@@ -25,16 +25,19 @@ Project structure and data pipeline:
 
      - new data uploaded to the local host from the web with REST API requests
      - the new data from directories is inserted to the local PostgreSQL database
-     - aggregated tables are formed for weekly and monthly bike usage depending on their type with SQL queries, as well as         Pandas dataframes we will work with
-       
+     - aggregated tables are formed for weekly and monthly bike usage depending on their type (electric or classic) with SQL queries in dbt
+    
 2. Tests for ELT procedures and resulting output
+ 
 3. Features engineering and training the models with their evaluation, registration and feature importance control
    - extracting features from the dataframes and their transformaion if needed
    - training and validation of XGBoost and PyGAM models for weeks and months with a new data point(s) (SARIMA is called at        the runtime)
    - registration of the models with MLflow if on validation their performance does not deteriorate
    - evaluating the feature importance with SHAP values (XGBoost) and partial dependence (GAM) and saving as model artefacts in MLflow registry
+  
+4. AI description of the current model performance with Llama 3 (or Deepseek if the description of Llama 3 is unsatisfactory) and giving an ability to AI to prevent a new trained model from registry if it evaluates it as bad.
      
-4. App embedding:
+5. App embedding:
    - backend (FastAPI + Uvicorn) for taking the input for models inference and fetching the models output + SARIMA run if          called
    - frontend (Streamlit) for the user's selection of the model and predictions parameters and visualization of the result
      

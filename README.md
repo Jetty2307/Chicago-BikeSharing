@@ -3,7 +3,7 @@
 
 Description:
 --------------
-Within a previous decade bike sharing became a popular way of inner-city mobility. In many cities, it has not only a leisure purpose, but acts a full-blown public transportation mode carrying people to and from work and for their other daily activities. Development of mobile apps helped to significantly improve the bike sharing systems making the process of tracking, locking/unlocking of the bicycle and payment easy and straightforward. The growing introduction of electric bikes and e-scooters made the systems more acceptable for the broader range of customers and also facilitated the expansion of such systems to districts and cities with hilly landscapes. 
+Within a previous decade, bike sharing became a popular way of inner-city mobility. In many cities, it has not only a leisure purpose, but acts as a full-blown public transportation mode carrying people to and from work and for their other daily activities. Development of mobile apps helped to significantly improve the bike sharing systems making the process of tracking, locking/unlocking of the bicycle and payment easy and straightforward. The growing introduction of electric bikes and e-scooters made the systems more acceptable for the broader range of customers and also facilitated the expansion of such systems to districts and cities with hilly landscapes. 
 
 One of the examples of such systems is the bike sharing system in Chicago operated by Divvy. This is the third most-populous city of the United States, which has typical big city problems of traffic jams, overloaded public transport or lack of good transport connection in some areas. Therefore Divvy offers additional way of mobility, and the system became very popular: it has around 1 000 station in Chicago and vicinities, over 15 000 vehicles, and its daily ridership amounts to over 6 million per year. Divvy also provides an app for its customers, as well as detailed data on each particular trip which took place through the service.
 
@@ -11,6 +11,9 @@ Goal:
 ------
 Unlike with traditional modes of transport, the demand in bike sharing can be very flexible depending on such factors as weather, season, date, day of the week, time of the day, presence of accompanying person or persons etc. Therefore, for the operator it is important to know the potential demand at each station at a particular time instance. This knowledge may significantly improve the overall performance of the system, for example, by redistributing free bicycles among stations, charging a proper amount of electric bikes, setting reminders in the app and tuning the price of the service. The time series predictive model then must evaluate the bike usage at certain dates and at certain points with a good accuracy.
 
+Data: 
+---------------------
+The Divvy data is taken from [https://divvy-tripdata.s3.amazonaws.com/index.html]https://divvy-tripdata.s3.amazonaws.com/index.html.
 
 Technical solution: 
 ---------------------

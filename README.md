@@ -13,7 +13,7 @@ Unlike with traditional modes of transport, the demand in bike sharing can be ve
 
 Data: 
 ---------------------
-The Divvy data is taken from [https://divvy-tripdata.s3.amazonaws.com/index.html]https://divvy-tripdata.s3.amazonaws.com/index.html.
+The Divvy data is taken from https://divvy-tripdata.s3.amazonaws.com/index.html.
 
 Technical solution: 
 ---------------------

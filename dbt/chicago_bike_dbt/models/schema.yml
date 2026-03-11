@@ -1,0 +1,53 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: public
+    tables:
+      - name: merged
+        columns:
+          - name: ride_id
+            tests:
+              - not_null
+          - name: rideable_type
+            tests:
+              - not_null
+          - name: started_at
+            tests:
+              - not_null
+
+models:
+  - name: stg_divvy_rides
+    columns:
+      - name: ride_id
+        tests:
+          - not_null
+      - name: rideable_type_code
+        tests:
+          - not_null
+          - accepted_values:
+              values: [1, 2]
+
+  - name: mart_rides_weekly
+    columns:
+      - name: rides
+        tests:
+          - not_null
+      - name: rides_lastweek
+        tests:
+          - not_null
+      - name: rides_2weeks_ago
+        tests:
+          - not_null
+
+  - name: mart_rides_monthly
+    columns:
+      - name: rides
+        tests:
+          - not_null
+      - name: rides_lastmonth
+        tests:
+          - not_null
+      - name: rides_2months_ago
+        tests:
+          - not_null

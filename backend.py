@@ -91,6 +91,7 @@ class Interval_prop:
 
         df = self.dataframe[self.dataframe.rideable_type == rideable_type].reset_index(drop=True)
 
+        ''' recursive forecasting approach - starting from identifying the next step values of features '''
         last_2row = df.iloc[-2]
         last_row = df.iloc[-1]
         forecast_data = []
@@ -98,13 +99,13 @@ class Interval_prop:
         current_interval = last_row[interval] + 1
 
         if current_interval % (self.period/4) == 1:
-            current_season = last_row['season'] + 1
-        else:
+            current_season = last_row['season'] + 1 # Increment season according to the interval
+        else:                                       #  e.g., every 3 months for monthly data)
             current_season = last_row['season']
 
-        if current_interval > self.period:  # Increment the year if the month exceeds 12
-            current_interval = 1
-            current_year = last_row['year'] + 1
+        if current_interval > self.period:
+            current_interval = 1 # Reset to 1 if it exceeds the period (e.g., 12 for months)
+            current_year = last_row['year'] + 1  # Increment the year if the month exceeds 12
             current_season = 0
         else:
             current_year = last_row['year']

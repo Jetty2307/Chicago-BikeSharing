@@ -3,6 +3,8 @@ import requests
 import pandas as pd
 import altair as alt
 
+st.set_page_config(layout="wide")
+
 # Streamlit UI Layout
 st.title("Chicago Bike Sharing Forecast Application")
 
@@ -96,11 +98,15 @@ def fetch_and_display_forecast(endpoint):
             title=alt.TitleParams("Bike Sharing in Chicago, Forecasts", fontSize=20)
         ).configure_legend(titleFontSize=16, labelFontSize=14).interactive()
 
-        st.altair_chart(line_chart, use_container_width=True)
+        chart_col, description_col = st.columns([4, 2], gap="large")
 
-        if description:
-            st.markdown(f"Forecast analysis")
-            st.info(description)
+        with chart_col:
+            st.altair_chart(line_chart, use_container_width=True)
+
+        with description_col:
+            if description:
+                st.markdown("Forecast analysis")
+                st.info(description)
 
     else:
         st.error("Error fetching data. Please check the data.")
@@ -140,9 +146,7 @@ if st.session_state.selected_model:
 
 #st.divider()
 
-label = "Add retro forecast" if not st.session_state.show_retro else "Remove retro forecast"
+# label = "Add retro forecast" if not st.session_state.show_retro else "Remove retro forecast"
 
-if st.button(label):
-    st.session_state.show_retro = not st.session_state.show_retro
-
-
+# if st.button(label):
+#    st.session_state.show_retro = not st.session_state.show_retro

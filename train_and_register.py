@@ -13,6 +13,7 @@ from xgboost import XGBRegressor
 from pygam import GAM, s, f, LogisticGAM, PoissonGAM
 from dataframes_loader import load_dataframe
 from ai_agent import make_summary, registry_decision
+from feature_storage import fetch_features_xgboost, fetch_features_gam
 import os
 import joblib
 import tempfile
@@ -159,12 +160,10 @@ def train_all_models(week, month):
     training_status["status"] = "ready"
 
 def fit_xgboost(df, interval):
-    logger.debug(f"Input DataFrame shape: {df.shape}")
-    logger.debug(f"Columns: {df.columns}")
-    y = df['rides']
+    # logger.debug(f"Input DataFrame shape: {df.shape}")
+    # logger.debug(f"Columns: {df.columns}")
 
-    X = df[['rideable_type', 'year', f'{interval}', 'season',
-            f'rides_2{interval}s_ago', f'rides_last{interval}']]
+    X, y = fetch_features_xgboost(df, interval)
 
     X_train, X_valid, y_train, y_valid = train_test_split(X, y, train_size=0.95,
                         test_size=0.05, shuffle=False, random_state=1)
@@ -257,22 +256,11 @@ def fit_xgboost(df, interval):
     return best_model
 
 def fit_GAM(df, interval):
-    logger.debug(f"Input DataFrame shape: {df.shape}")
-    logger.debug(f"Columns: {df.columns}")
-    feature_cols = [
-        'rideable_type',
-        'year',
-        interval,
-        'season',
-        f'rides_2{interval}s_ago',
-        f'rides_last{interval}'
-    ]
+    # logger.debug(f"Input DataFrame shape: {df.shape}")
+    # logger.debug(f"Columns: {df.columns}")
 
-    data = df[feature_cols + ['rides']].copy()
-    data = data.replace([np.inf, -np.inf], np.nan).dropna()
-
-    X = data[feature_cols].to_numpy()
-    y = data["rides"].to_numpy()
+    X, y, feature_names = fetch_features_gam(df, interval)
+    logger.debug(f"Features: {feature_names}")
 
     split_idx = int(len(X) * 0.95)
     X_train, y_train = X[:split_idx], y[:split_idx]
@@ -336,7 +324,7 @@ def fit_GAM(df, interval):
         if passed:
             log_gam_term_plots(
                 gam_model=model,
-                feature_names=feature_cols,
+                feature_names=feature_names,
                 X_train=X_train,
                 prefix=f"gam_{interval}",
             )

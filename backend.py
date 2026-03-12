@@ -7,6 +7,11 @@ from statsmodels.tsa.statespace.sarimax import SARIMAX
 # from models import train_all_models, trained_models, training_status
 from dataframes_loader import load_dataframe
 from model_loader import load_xgb, load_gam, training_status
+from feature_storage import (
+    generate_next_vector,
+    initialize_forecast_state,
+    update_forecast_state,
+)
 import logging
 import os
 from dotenv import load_dotenv
@@ -90,79 +95,40 @@ class Interval_prop:
     def make_prediction(self, steps, interval, regr_model, rideable_type):
 
         df = self.dataframe[self.dataframe.rideable_type == rideable_type].reset_index(drop=True)
-
-        last_2row = df.iloc[-2]
-        last_row = df.iloc[-1]
         forecast_data = []
 
-        current_interval = last_row[interval] + 1
-
-        if current_interval % (self.period/4) == 1:
-            current_season = last_row['season'] + 1
-        else:
-            current_season = last_row['season']
-
-        if current_interval > self.period:  # Increment the year if the month exceeds 12
-            current_interval = 1
-            current_year = last_row['year'] + 1
-            current_season = 0
-        else:
-            current_year = last_row['year']
-
-        current_ride_id_count = last_2row['rides']  # Use as starting value for ride_id_count_lastmonth
-        current_ride_id_count_plusinterval = last_row['rides']
-
-        current_year_interval = self.add_interval(last_row[f'year_{interval}'])
+        # Recursive forecasting starts from the next-step feature state.
+        state = initialize_forecast_state(
+            df=df,
+            interval=interval,
+            period=self.period,
+            add_interval=self.add_interval,
+        )
 
         for _ in range(steps):
-            # Prepare the input features for prediction
-            input_features = pd.DataFrame({
-                'rideable_type': [df['rideable_type'][0]],
-                'year': [current_year],
-                interval: [current_interval],
-                'season': [current_season],
-                f'rides_2{interval}s_ago': [current_ride_id_count],
-                f'rides_last{interval}': [current_ride_id_count_plusinterval]
-            })
+            input_features = generate_next_vector(state=state, interval=interval)
 
-            # Predict the ride_id_count for the current month
-            predicted_ride_id_count = regr_model.predict(input_features)[0]  # Extract the prediction value
+            predicted_ride_id_count = regr_model.predict(input_features)[0]
 
-            # Append the forecasted data
             forecast_data.append({
-                'rideable_type': df['rideable_type'][0],
-                'time' : current_year_interval,
-                'year': current_year,
-                interval : current_interval,
-                'season': current_season,
-                f'rides_2{interval}s_ago': current_ride_id_count,
-                f'rides_last{interval}': current_ride_id_count_plusinterval,
+                'rideable_type': state["rideable_type"],
+                'time' : state["current_year_interval"],
+                'year': state["current_year"],
+                interval : state["current_interval"],
+                'season': state["current_season"],
+                f'rides_2{interval}s_ago': state["rides_2ago"],
+                f'rides_last{interval}': state["rides_last"],
                 'rides': predicted_ride_id_count
             })
 
-            # Update the values for the next iteration
-            # Use the current prediction for the next month's lastmonth value
-            current_ride_id_count = current_ride_id_count_plusinterval
-            current_ride_id_count_plusinterval= predicted_ride_id_count
+            state = update_forecast_state(
+                state=state,
+                predicted_rides=predicted_ride_id_count,
+                period=self.period,
+                add_interval=self.add_interval,
+            )
 
-            current_interval += 1
-
-            if current_interval % (self.period/4) == 1:
-                current_season += 1
-
-            if current_interval > self.period:  # Increment the year if the month exceeds 12
-                current_interval = 1
-                current_year += 1
-                current_season = 0
-
-            current_year_interval = self.add_interval(current_year_interval)
-
-        # Create a DataFrame from the forecasted data
-        forecast_df = pd.DataFrame(forecast_data)
-
-        # Display the result
-
-        return forecast_df
+        return pd.DataFrame(forecast_data)
 
 
 month = Interval_prop(

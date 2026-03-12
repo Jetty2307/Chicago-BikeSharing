@@ -79,7 +79,7 @@ def performance_summary(model, model_params: dict):
             )
             ollama_response.raise_for_status()
             description = ollama_response.json()["message"]["content"].strip()
-            return f"{description}\n Provided by {model}"
+            return f"\n {description}\n Provided by {model}"
         except requests.exceptions.RequestException:
             return performance_summary("deepseek-chat", model_params)
 
@@ -89,7 +89,7 @@ def performance_summary(model, model_params: dict):
         temperature=0,
     )
 
-    return f"{description}\n Provided by {model}"
+    return f"\n {description}\n Provided by {model}"
 
 
 def reflect_on_description(description: str, model_params: dict, model: str = "deepseek-chat") -> str:

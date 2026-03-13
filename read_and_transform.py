@@ -25,6 +25,7 @@ MART_SCHEMA = os.getenv("DBT_MART_SCHEMA", "analytics")
 WEEK_QUERY = f"""
 SELECT
     year_week,
+    is_full_week,
     rideable_type,
     year,
     week,
@@ -33,7 +34,7 @@ SELECT
     rides_lastweek,
     rides_2weeks_ago
 FROM {MART_SCHEMA}.mart_rides_weekly
-ORDER BY year, week, rideable_type
+ORDER BY year_week, rideable_type
 """
 
 MONTH_QUERY = f"""

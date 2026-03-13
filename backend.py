@@ -124,6 +124,7 @@ class Interval_prop:
             state = update_forecast_state(
                 state=state,
                 predicted_rides=predicted_ride_id_count,
+                interval=interval,
                 period=self.period,
                 add_interval=self.add_interval,
             )

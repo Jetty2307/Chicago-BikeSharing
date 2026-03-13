@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
-from typing import Any, Tuple
+# from typing import Any, Tuple
+from typing import Any, Tuple, List, Dict
+from weather import df_weather
 
 
 def _clean_training_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -21,7 +23,7 @@ def fetch_features_xgboost(df: pd.DataFrame, interval: str) -> Tuple[pd.DataFram
     return X, y
 
 
-def fetch_features_gam(df: pd.DataFrame, interval: str) -> Tuple[np.ndarray, np.ndarray, list[str]]:
+def fetch_features_gam(df: pd.DataFrame, interval: str) -> Tuple[np.ndarray, np.ndarray, List[str]]:
     df = _clean_training_frame(df)
     feature_names = ["rideable_type", "year", interval, "season"]  # order matters
     X = df[feature_names].to_numpy()
@@ -29,9 +31,30 @@ def fetch_features_gam(df: pd.DataFrame, interval: str) -> Tuple[np.ndarray, np.
     return X, y, feature_names
 
 
-def initialize_forecast_state(df: pd.DataFrame, interval: str, period: int, add_interval) -> dict[str, Any]:
+def _season_from_timestamp(ts: pd.Timestamp) -> int:
+    return (ts.month - 1) // 3
+
+
+def _build_weekly_state(last_2row: pd.Series, last_row: pd.Series, add_interval) -> Dict[str, Any]:
+    next_week_start = pd.Timestamp(add_interval(last_row["year_week"]))
+
+    return {
+        "rideable_type": last_row["rideable_type"],
+        "current_year": next_week_start.year,
+        "current_interval": int(next_week_start.isocalendar().week),
+        "current_season": _season_from_timestamp(next_week_start),
+        "rides_2ago": last_2row["rides"],
+        "rides_last": last_row["rides"],
+        "current_year_interval": next_week_start.strftime("%Y-%m-%d"),
+    }
+
+
+def initialize_forecast_state(df: pd.DataFrame, interval: str, period: int, add_interval) -> Dict[str, Any]:
     last_2row = df.iloc[-2]
     last_row = df.iloc[-1]
+
+    if interval == "week":
+        return _build_weekly_state(last_2row=last_2row, last_row=last_row, add_interval=add_interval)
 
     current_interval = last_row[interval] + 1
     if current_interval % (period / 4) == 1:
@@ -57,7 +80,7 @@ def initialize_forecast_state(df: pd.DataFrame, interval: str, period: int, add_
     }
 
 
-def generate_next_vector(state: dict[str, Any], interval: str) -> pd.DataFrame:
+def generate_next_vector(state: Dict[str, Any], interval: str) -> pd.DataFrame:
     return pd.DataFrame({
         "rideable_type": [state["rideable_type"]],
         "year": [state["current_year"]],
@@ -68,10 +91,25 @@ def generate_next_vector(state: dict[str, Any], interval: str) -> pd.DataFrame:
     })
 
 
-def update_forecast_state(state: dict[str, Any], predicted_rides: float, period: int, add_interval) -> dict[str, Any]:
+def update_forecast_state(
+    state: Dict[str, Any],
+    predicted_rides: float,
+    interval: str,
+    period: int,
+    add_interval,
+) -> Dict[str, Any]:
     next_state = state.copy()
     next_state["rides_2ago"] = state["rides_last"]
     next_state["rides_last"] = predicted_rides
+
+    if interval == "week":
+        next_week_start = pd.Timestamp(add_interval(state["current_year_interval"]))
+        next_state["current_year_interval"] = next_week_start.strftime("%Y-%m-%d")
+        next_state["current_year"] = next_week_start.year
+        next_state["current_interval"] = int(next_week_start.isocalendar().week)
+        next_state["current_season"] = _season_from_timestamp(next_week_start)
+        return next_state
+
     next_state["current_interval"] += 1
 
     if next_state["current_interval"] % (period / 4) == 1:
@@ -84,6 +122,3 @@ def update_forecast_state(state: dict[str, Any], predicted_rides: float, period:
 
     next_state["current_year_interval"] = add_interval(state["current_year_interval"])
     return next_state
-
-
-

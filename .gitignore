@@ -39,9 +39,9 @@ artifacts/models/*.onnx
 # =========================
 # Data
 # =========================
-data/
 downloaded_zips/
 extracted_files/
+.idea
 *.csv
 *.parquet
 

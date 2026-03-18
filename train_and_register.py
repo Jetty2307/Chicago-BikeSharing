@@ -163,10 +163,15 @@ def fit_xgboost(df, interval):
     # logger.debug(f"Input DataFrame shape: {df.shape}")
     # logger.debug(f"Columns: {df.columns}")
 
-    X, y = fetch_features_xgboost(df, interval)
+    X, y, feature_names = fetch_features_xgboost(df, interval)
+    logger.debug(f"Features: {feature_names}")
 
-    X_train, X_valid, y_train, y_valid = train_test_split(X, y, train_size=0.95,
-                        test_size=0.05, shuffle=False, random_state=1)
+    X_train, X_valid, y_train, y_valid = train_test_split(X, y, train_size=0.9,
+                        test_size=0.1, shuffle=False, random_state=1)
+
+    if interval == "week":
+        X_valid = X_valid[:-1]
+        y_valid = y_valid[:-1]
 
     param_grid = {'max_depth': [3, 4, 5],
                   'n_estimators': [50, 100, 200, 300],
@@ -262,9 +267,13 @@ def fit_GAM(df, interval):
     X, y, feature_names = fetch_features_gam(df, interval)
     logger.debug(f"Features: {feature_names}")
 
-    split_idx = int(len(X) * 0.95)
+    split_idx = int(len(X) * 0.9)
     X_train, y_train = X[:split_idx], y[:split_idx]
     X_valid, y_valid = X[split_idx:], y[split_idx:]
+
+    if interval == "week":
+        X_valid = X_valid[:-1]
+        y_valid = y_valid[:-1]
 
     # model = GAM().fit(X, y)
 

@@ -41,7 +41,7 @@ artifacts/models/*.onnx
 # =========================
 downloaded_zips/
 extracted_files/
-.idea
+.idea/
 *.csv
 *.parquet
 

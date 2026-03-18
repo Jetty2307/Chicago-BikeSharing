@@ -31,7 +31,12 @@ SELECT
     season,
     rides,
     rides_lastweek,
-    rides_2weeks_ago
+    rides_2weeks_ago,
+    max_temp,
+    avg_temp,
+    min_temp,
+    total_rain,
+    total_snow
 FROM {MART_SCHEMA}.mart_rides_weekly
 ORDER BY year_week, rideable_type
 """

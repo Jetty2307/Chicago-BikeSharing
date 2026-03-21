@@ -3,6 +3,7 @@ import pandas as pd
 import os
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
+from weather_api import load_historical_weather
 
 load_dotenv()
 
@@ -31,30 +32,7 @@ with engine.connect() as conn:
     start_date = values["first_day"][0]
     end_date = values["last_day"][0]
 
-
-url = "https://archive-api.open-meteo.com/v1/archive"
-params = {
-    "latitude": 41.8781,  # Chicago's coordinates
-    "longitude": -87.6298,
-    "start_date": start_date,
-    "end_date": end_date,
-    "daily": [
-        "temperature_2m_mean",  # 2 meters above sea level
-        "precipitation_sum",
-        "rain_sum",
-        "snowfall_sum",
-        "weather_code",
-    ],
-    "timezone": "America/Chicago",
-}
-
-resp = requests.get(url, params=params, timeout=30)
-resp.raise_for_status()
-data = resp.json()
-
-df_weather = pd.DataFrame(data["daily"])
-df_weather = df_weather.rename(columns={"time": "weather_date"})
-df_weather["weather_date"] = pd.to_datetime(df_weather["weather_date"]).dt.date
+df_weather = load_historical_weather(start_date, end_date)
 
 CREATE_WEATHER_TABLE_SQL = f"""
 CREATE TABLE IF NOT EXISTS {RAW_SCHEMA}.{WEATHER_TABLE} (
@@ -96,7 +74,6 @@ with engine.begin() as conn:
     conn.execute(text(CREATE_WEATHER_TABLE_SQL))
     conn.execute(text(INSERT_WEATHER_SQL), df_weather.to_dict(orient="records"))
 
-print(df_weather.head())
 print(
     f"Loaded {len(df_weather)} rows into {RAW_SCHEMA}.{WEATHER_TABLE} "
     f"for {start_date}..{end_date}"

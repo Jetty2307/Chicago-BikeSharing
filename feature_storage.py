@@ -10,19 +10,17 @@ load_dotenv()
 
 today = pd.Timestamp.today(tz="America/Chicago").tz_localize(None).normalize()
 
-exogenous_features  = {
-        'week': {
-            "xgboost": ["max_temp", "avg_temp", "min_temp", "total_rain", "total_snow"],
-            "GAM": ["avg_temp", "total_rain", "total_snow"]
-        },
-        'month': {
-            "xgboost": [],
-            "GAM": []
-        }
+model_features = {
+    "week": {
+        "xgboost": ["rideable_type", "year", "week", "season", "rides_2weeks_ago", "rides_lastweek",
+                    "max_temp", "avg_temp", "min_temp", "total_rain", "total_snow"],
+        "GAM": ["rideable_type", "year", "week", "season", "avg_temp", "total_rain", "total_snow"],
+    },
+    "month": {
+        "xgboost": ["rideable_type", "year", "month", "season", "rides_2months_ago", "rides_lastmonth"],
+        "GAM": ["rideable_type", "year", "month", "season"],
+    },
 }
-
-# exogenous_features = {"month": [],
-#                       "week": ["max_temp", "avg_temp", "min_temp", "total_rain", "total_snow"]}
 
 def _clean_training_frame(df: pd.DataFrame) -> pd.DataFrame:
     return df.copy().replace([np.inf, -np.inf], np.nan).dropna()
@@ -99,13 +97,15 @@ def get_weather_forecast_df() -> pd.DataFrame:
     )
 
     full_weeks = pd.DataFrame({"year_week": future_weeks.strftime("%Y-%m-%d")})
-    full_weeks["week"] = future_weeks.isocalendar().week.astype(int)
+    full_weeks["week"] = pd.to_datetime(full_weeks["year_week"]).dt.isocalendar().week.astype(int)
 
     df_forecast_weekly = full_weeks.merge(df_forecast_weekly, on="year_week", how="left")
     df_forecast_weekly = df_forecast_weekly.merge(weekly_avg, on="week", how="left", suffixes=("", "_avg"))
 
     for col in ["max_temp", "avg_temp", "min_temp", "total_rain", "total_snow"]:
         df_forecast_weekly[col] = df_forecast_weekly[col].fillna(df_forecast_weekly[f"{col}_avg"])
+        df_forecast_weekly[col] = df_forecast_weekly[col].ffill()
+        df_forecast_weekly[col] = df_forecast_weekly[col].fillna(weekly_avg[col].mean())
 
     return df_forecast_weekly[["year_week", "max_temp", "avg_temp", "min_temp", "total_rain", "total_snow"]]
 
@@ -113,12 +113,7 @@ def get_weather_forecast_df() -> pd.DataFrame:
 def fetch_features_xgboost(df: pd.DataFrame, interval: str, model_name: str) -> Tuple[pd.DataFrame, pd.Series]:
     df = _clean_training_frame(df)
     y = df["rides"]
-    feature_names = ["rideable_type",
-        "year",
-        interval,
-        "season",
-        f"rides_2{interval}s_ago",
-        f"rides_last{interval}"] + exogenous_features[interval][model_name]
+    feature_names = model_features[interval][model_name]
     X = df[feature_names]
     return X, y, feature_names
 
@@ -128,7 +123,7 @@ def fetch_features_gam(df: pd.DataFrame, interval: str, model_name: str) -> Tupl
 
     # order matters for GAM since we need to align with the model's expected feature order
 
-    feature_names = ["rideable_type", "year", interval, "season"] + exogenous_features[interval][model_name]
+    feature_names = model_features[interval][model_name]
     X = df[feature_names].to_numpy()
     y = df["rides"].to_numpy()
     return X, y, feature_names
@@ -239,10 +234,10 @@ def attach_weekly_weather_features(
     interval: str,
 ) -> pd.DataFrame:
 
-    weather_cols = exogenous_features[interval][model]
+    weather_cols = [column for column in model_features[interval][model] if column in weather_df.columns]
 
     weather_week = (
-        weather_df[weather_cols]
+        weather_df[["year_week"] + weather_cols]
         .drop_duplicates(subset=["year_week"])
         .copy()
     )

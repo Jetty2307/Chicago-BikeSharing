@@ -8,10 +8,10 @@ from statsmodels.tsa.statespace.sarimax import SARIMAX
 from dataframes_loader import load_dataframe
 from model_loader import load_xgb, load_gam, training_status
 from feature_storage import (
-    exogenous_features,
     generate_next_vector,
     get_weather_forecast_df,
     initialize_forecast_state,
+    model_features,
     update_forecast_state,
 )
 import logging
@@ -112,14 +112,7 @@ class Interval_prop:
 
         for _ in range(steps):
             date_features = generate_next_vector(state=state, interval=interval)
-            feature_columns = [
-                "rideable_type",
-                "year",
-                interval,
-                "season",
-                f"rides_2{interval}s_ago",
-                f"rides_last{interval}",
-            ] + exogenous_features[interval][model_key]
+            feature_columns = model_features[interval][model_key]
 
             if interval == "week":
                 weather_features = df_forecast_weekly.loc[
@@ -133,9 +126,7 @@ class Interval_prop:
                 input_features = date_features
 
             input_features = input_features[feature_columns]
-
-            prediction_input = input_features.to_numpy() if model_key == "GAM" else input_features
-            predicted_ride_id_count = regr_model.predict(prediction_input)[0]
+            predicted_ride_id_count = regr_model.predict(input_features)[0]
 
             forecast_data.append({
                 'rideable_type': state["rideable_type"],

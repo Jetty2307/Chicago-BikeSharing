@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 load_dotenv()
 # from statsmodels.tsa.statespace.sarimax import SARIMAX
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 training_status = {"status": "not_started"}
@@ -163,7 +164,7 @@ def fit_xgboost(df, interval):
     # logger.debug(f"Input DataFrame shape: {df.shape}")
     # logger.debug(f"Columns: {df.columns}")
 
-    X, y, feature_names = fetch_features_xgboost(df, interval)
+    X, y, feature_names = fetch_features_xgboost(df, interval, model_name="xgboost")
     logger.debug(f"Features: {feature_names}")
 
     X_train, X_valid, y_train, y_valid = train_test_split(X, y, train_size=0.9,
@@ -229,7 +230,7 @@ def fit_xgboost(df, interval):
         description = make_summary(model_params)
         mlflow.set_tag("performance_description", str(description))
 
-        decision = registry_decision(model_name, model_params, description)
+        decision = registry_decision(model_params=model_params, description=description)
         mlflow.set_tag("ai_registry_decision", decision["decision"].lower())
         mlflow.set_tag("ai_registry_reason", decision["reason"])
         if decision["decision"] == "STOP":
@@ -264,8 +265,9 @@ def fit_GAM(df, interval):
     # logger.debug(f"Input DataFrame shape: {df.shape}")
     # logger.debug(f"Columns: {df.columns}")
 
-    X, y, feature_names = fetch_features_gam(df, interval)
+    X, y, feature_names = fetch_features_gam(df, interval, model_name="GAM")
     logger.debug(f"Features: {feature_names}")
+    # "rideable_type", "year", interval, "season", "avg_temp", "total_rain", "total_snow"
 
     split_idx = int(len(X) * 0.9)
     X_train, y_train = X[:split_idx], y[:split_idx]
@@ -275,16 +277,14 @@ def fit_GAM(df, interval):
         X_valid = X_valid[:-1]
         y_valid = y_valid[:-1]
 
-    # model = GAM().fit(X, y)
+        model = PoissonGAM(
+            f(0) + s(1) + s(2, basis='cp') + f(3) + s(4) + s(5) + s(6)
+        ).gridsearch(X_train, y_train)
 
-    model = PoissonGAM(
-        f(0) +
-        s(1) +
-        s(2, basis='cp') +
-        f(3)
-        # s(4) +
-        # s(5)
-    ).gridsearch(X_train, y_train)
+    if interval == "month":
+        model = PoissonGAM(
+            f(0) + s(1) + s(2, basis='cp') + f(3)
+        ).gridsearch(X_train, y_train)
 
     y_pred = model.predict(X_valid)
     val_r2 = r2_score(y_valid, y_pred)
@@ -308,8 +308,11 @@ def fit_GAM(df, interval):
             mlflow.set_tag("baseline_version", str(baseline_version))
         mlflow.set_tag("max_rel_degradation", str(MAX_REL_DEGRADATION))
 
+        passed = True
+
         if not passed:
-            logger.warning(f"[GATE FAIL] {model_name}: val_rmse={val_rmse:.4f} worse than baseline={baseline_rmse:.4f}")
+            logger.warning(f"[GATE FAIL] {model_name}: val_rmse={val_rmse:.4f} \
+                           worse than baseline={baseline_rmse:.4f}")
             return None
 
         model_params = {'model_type': 'Generalized Additive Model',
@@ -323,7 +326,7 @@ def fit_GAM(df, interval):
         description = make_summary(model_params)
         mlflow.set_tag("performance_description", str(description))
 
-        decision = registry_decision(model_name, model_params, description)
+        decision = registry_decision(model_params=model_params, description=description)
         mlflow.set_tag("ai_registry_decision", decision["decision"].lower())
         mlflow.set_tag("ai_registry_reason", decision["reason"])
         if decision["decision"] == "STOP":

@@ -9,11 +9,14 @@ from dataframes_loader import load_dataframe
 from model_loader import load_xgb, load_gam, training_status
 from feature_storage import (
     generate_next_vector,
+    get_weather_forecast_df,
     initialize_forecast_state,
+    model_features,
     update_forecast_state,
 )
 import logging
 import os
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -71,6 +74,8 @@ def load_models():
             "GAM": load_gam("month")[1]
         }
     }
+    global df_forecast_weekly
+    df_forecast_weekly = get_weather_forecast_df()
 
 '''@app.on_event("startup")
 def startup_event():
@@ -92,7 +97,7 @@ class Interval_prop:
         date_obj = datetime.strptime(date_str, self.date_format)
         new_date = date_obj + self.offset
         return new_date.strftime(self.date_format)
-    def make_prediction(self, steps, interval, regr_model, rideable_type):
+    def make_prediction(self, steps, interval, regr_model, rideable_type, model_key):
 
         df = self.dataframe[self.dataframe.rideable_type == rideable_type].reset_index(drop=True)
         forecast_data = []
@@ -106,8 +111,21 @@ class Interval_prop:
         )
 
         for _ in range(steps):
-            input_features = generate_next_vector(state=state, interval=interval)
+            date_features = generate_next_vector(state=state, interval=interval)
+            feature_columns = model_features[interval][model_key]
 
+            if interval == "week":
+                weather_features = df_forecast_weekly.loc[
+                    df_forecast_weekly["year_week"] == state["current_year_interval"]
+                ]
+                if weather_features.empty:
+                    raise ValueError(f"Weekly weather forecast not found for {state['current_year_interval']}")
+
+                input_features = date_features.merge(weather_features, on="year_week", how="left")
+            else:
+                input_features = date_features
+
+            input_features = input_features[feature_columns]
             predicted_ride_id_count = regr_model.predict(input_features)[0]
 
             forecast_data.append({
@@ -177,7 +195,7 @@ def to_final_pd(d1, path_nonindexed, description):
         "description": clean_description # Convert forecast to list for JSON serialization
     }
 
-def forecast_rides_regressive(request: ForecastRequest, model, timeframe, description):
+def forecast_rides_regressive(request: ForecastRequest, model, timeframe, description, model_key):
 
     path = timeframe.dataframe.groupby(f'year_{request.interval}')["rides"].sum()
     path_nonindexed = path.reset_index()
@@ -189,9 +207,9 @@ def forecast_rides_regressive(request: ForecastRequest, model, timeframe, descri
         raise HTTPException(status_code=500, detail=f"Error fitting model: {str(e)}")
 
     forecast_1_tot = timeframe.make_prediction(steps=request.steps,
-                                                    interval=request.interval, regr_model=fulldata, rideable_type=1)
+                                                    interval=request.interval, regr_model=fulldata, rideable_type=1, model_key=model_key)
     forecast_2_tot = timeframe.make_prediction(steps=request.steps,
-                                                    interval=request.interval, regr_model=fulldata, rideable_type=2)
+                                                    interval=request.interval, regr_model=fulldata, rideable_type=2, model_key=model_key)
     forecast_tot = merge_columns(forecast_1_tot, forecast_2_tot, interval=request.interval)
     forecast_tot = forecast_tot[['time','rides']]
 
@@ -220,7 +238,7 @@ def _forecast_with_trained_model(request: ForecastRequest, model_key: str):
     except:
         description = "No performance description available"
 
-    return forecast_rides_regressive(request, model, timeframe, description)
+    return forecast_rides_regressive(request, model, timeframe, description, model_key)
 
 
 @app.post("/forecast_bikes_sarima")

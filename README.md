@@ -29,6 +29,8 @@ Project structure and data pipeline:
      - new data uploaded to the local host from the web with REST API requests
      - the new data from directories is inserted to the local PostgreSQL database
      - aggregated tables are formed for weekly and monthly bike usage depending on their type (electric or classic) with SQL queries in dbt
+     - additionally the historical weather data are downloaded from [open-meteo](https://open-meteo.com) to form weather features, and they are also stored in the DB,
+     and joined with time features for the rides with dbt.
     
 2. Tests for ELT procedures and resulting output
  

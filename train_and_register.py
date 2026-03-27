@@ -174,10 +174,12 @@ def fit_xgboost(df, interval):
         X_valid = X_valid[:-1]
         y_valid = y_valid[:-1]
 
-    param_grid = {'max_depth': [3, 4, 5],
-                  'n_estimators': [50, 100, 200, 300],
-                  'learning_rate': [0.005, 0.01, 0.05, 0.1, 0.3, 0.5],
-                  }
+    param_grid = {
+        'max_depth': [3, 5, 7],
+        'n_estimators': [100, 200, 300],
+        'learning_rate': [0.03, 0.05, 0.1],
+        'min_child_weight': [1, 3, 5, 7],
+    }
 
     grid = GridSearchCV(
         XGBRegressor(random_state=1, objective='count:poisson'),

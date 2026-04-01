@@ -29,23 +29,23 @@ Project structure and data pipeline:
      - new data uploaded to the local host from the web with REST API requests
      - the new data from directories is inserted to the local PostgreSQL database
      - aggregated tables are formed for weekly and monthly bike usage depending on their type (electric or classic) with SQL queries in dbt
-     - additionally the historical weather data are downloaded from [open-meteo](https://open-meteo.com) to form weather features, and they are also stored in the DB,
-     and joined with time features for the rides with dbt.
+     - additionally the historical weather data are downloaded from [open-meteo](https://open-meteo.com) to form weather features (temperature, rain, snow), and they are also stored in the DB,
+     and joined with time features (year, season, week/month/ lags) for the rides with dbt.
     
 2. Tests for ELT procedures and resulting output
  
 3. Features engineering and training the models with their evaluation, registration and feature importance control
-   - extracting features from the dataframes and their transformaion if needed
-   - training and validation of XGBoost and PyGAM models for weeks and months with a new data point(s) (SARIMA is called at        the runtime)
+   - extracting features from the dataframes and their transformation if needed
+   - training and validation of XGBoost and PyGAM models for weekly and monthly predictions with a new data point(s) (SARIMA is called at the runtime)
    - registration of the models with MLflow if on validation their performance does not deteriorate
    - evaluating the feature importance with SHAP values (XGBoost) and partial dependence (GAM) and saving as model artefacts in MLflow registry
   
 4. AI description of the current model performance with Llama 3 (or Deepseek if the description of Llama 3 is unsatisfactory) and giving an ability to AI to prevent a new trained model from registry if it evaluates it as bad.
      
 5. App embedding:
-   - backend (FastAPI + Uvicorn) for taking the input for models inference and fetching the models output + SARIMA run if          called
+   - backend (FastAPI + Uvicorn) for taking the input for models inference and fetching the models output + SARIMA run if called
    - frontend (Streamlit) for the user's selection of the model and predictions parameters and visualization of the result
      
-     The user can select a certain model and the predictions for upcoming weeks or months for a certain period of time will        be shown.
+     The user can select a certain model, and the predictions for upcoming weeks or months for a certain period of time will be shown.
      
 5. App containerization with Docker

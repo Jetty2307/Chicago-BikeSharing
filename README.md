@@ -48,4 +48,4 @@ Project structure and data pipeline:
      
      The user can select a certain model, and the predictions for upcoming weeks or months for a certain period of time will be shown.
      
-5. App containerization with Docker
+6. App containerization with Docker

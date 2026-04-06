@@ -38,7 +38,7 @@ def _deepseek_chat_text(model: str, messages: list, temperature=None) -> str:
         if "by_alias" not in str(exc):
             raise
 
-        # Fallback for SDK/pydantic incompatibility in some local environments.
+        # Fallback for SDK/pydantic incompatibility in some local environments
         http_response = requests.post(
             "https://api.deepseek.com/chat/completions",
             headers={

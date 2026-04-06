@@ -12,6 +12,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 from xgboost import XGBRegressor
 from pygam import GAM, s, f, LogisticGAM, PoissonGAM
 from dataframes_loader import load_dataframe
+from intervals import get_interval_spec
 from ai_agent import make_summary, registry_decision
 from feature_storage import fetch_features_xgboost, fetch_features_gam
 import os
@@ -163,16 +164,14 @@ def train_all_models(week, month):
 def fit_xgboost(df, interval):
     # logger.debug(f"Input DataFrame shape: {df.shape}")
     # logger.debug(f"Columns: {df.columns}")
+    interval_spec = get_interval_spec(interval)
 
     X, y, feature_names = fetch_features_xgboost(df, interval, model_name="xgboost")
     logger.debug(f"Features: {feature_names}")
 
     X_train, X_valid, y_train, y_valid = train_test_split(X, y, train_size=0.9,
                         test_size=0.1, shuffle=False, random_state=1)
-
-    if interval == "week":
-        X_valid = X_valid[:-1]
-        y_valid = y_valid[:-1]
+    X_valid, y_valid = interval_spec.trim_validation(X_valid, y_valid)
 
     param_grid = {
         'max_depth': [3, 5, 7],
@@ -266,6 +265,7 @@ def fit_xgboost(df, interval):
 def fit_GAM(df, interval):
     # logger.debug(f"Input DataFrame shape: {df.shape}")
     # logger.debug(f"Columns: {df.columns}")
+    interval_spec = get_interval_spec(interval)
 
     X, y, feature_names = fetch_features_gam(df, interval, model_name="GAM")
     logger.debug(f"Features: {feature_names}")
@@ -274,11 +274,9 @@ def fit_GAM(df, interval):
     split_idx = int(len(X) * 0.9)
     X_train, y_train = X[:split_idx], y[:split_idx]
     X_valid, y_valid = X[split_idx:], y[split_idx:]
+    X_valid, y_valid = interval_spec.trim_validation(X_valid, y_valid)
 
     if interval == "week":
-        X_valid = X_valid[:-1]
-        y_valid = y_valid[:-1]
-
         model = PoissonGAM(
             f(0) + s(1) + s(2, basis='cp') + f(3) + s(4) + s(5) + s(6)
         ).gridsearch(X_train, y_train)

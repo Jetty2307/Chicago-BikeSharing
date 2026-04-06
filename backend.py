@@ -6,12 +6,12 @@ from pydantic import BaseModel
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 # from models import train_all_models, trained_models, training_status
 from dataframes_loader import load_dataframe
+from intervals import get_interval_spec
 from model_loader import load_xgb, load_gam, training_status
 from feature_storage import (
     generate_next_vector,
     get_weather_forecast_df,
     initialize_forecast_state,
-    model_features,
     update_forecast_state,
 )
 import logging
@@ -19,10 +19,6 @@ import os
 
 from dotenv import load_dotenv
 load_dotenv()
-
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
-
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -85,86 +81,57 @@ def startup_event():
     print(">>> TRAINING COMPLETED<<<")
     return {"Models training in process"} '''
 
-class Interval_prop:
-    def __init__(self, dataframe, period, offset, date_format, sarima_freq):
-        self.dataframe = dataframe
-        self.period = period
-        self.offset = offset
-        self.date_format = date_format
-        self.sarima_freq = sarima_freq
 
-    def add_interval(self, date_str):
-        date_obj = datetime.strptime(date_str, self.date_format)
-        new_date = date_obj + self.offset
-        return new_date.strftime(self.date_format)
-    def make_prediction(self, steps, interval, regr_model, rideable_type, model_key):
+def make_prediction(timeframe, steps, regr_model, rideable_type, model_key):
+    df = timeframe.dataframe[timeframe.dataframe.rideable_type == rideable_type].reset_index(drop=True)
+    forecast_data = []
 
-        df = self.dataframe[self.dataframe.rideable_type == rideable_type].reset_index(drop=True)
-        forecast_data = []
+    state = initialize_forecast_state(
+        df=df,
+        interval=timeframe.name,
+        period=timeframe.period,
+        add_interval=timeframe.add_interval,
+    )
 
-        # Recursive forecasting starts from the next-step feature state.
-        state = initialize_forecast_state(
-            df=df,
-            interval=interval,
-            period=self.period,
-            add_interval=self.add_interval,
+    for _ in range(steps):
+        date_features = generate_next_vector(state=state, interval=timeframe.name)
+        input_features = date_features
+
+        if timeframe.uses_weather:
+            weather_features = df_forecast_weekly.loc[
+                df_forecast_weekly["year_week"] == state["current_year_interval"]
+            ]
+            if weather_features.empty:
+                raise ValueError(f"Weekly weather forecast not found for {state['current_year_interval']}")
+            input_features = date_features.merge(weather_features, on="year_week", how="left")
+
+        input_features = input_features[timeframe.feature_columns(model_key)]
+        predicted_ride_id_count = regr_model.predict(input_features)[0]
+
+        forecast_data.append({
+            'rideable_type': state["rideable_type"],
+            'time': state["current_year_interval"],
+            'year': state["current_year"],
+            timeframe.name: state["current_interval"],
+            'season': state["current_season"],
+            f'rides_2{timeframe.name}s_ago': state["rides_2ago"],
+            f'rides_last{timeframe.name}': state["rides_last"],
+            'rides': predicted_ride_id_count
+        })
+
+        state = update_forecast_state(
+            state=state,
+            predicted_rides=predicted_ride_id_count,
+            interval=timeframe.name,
+            period=timeframe.period,
+            add_interval=timeframe.add_interval,
         )
 
-        for _ in range(steps):
-            date_features = generate_next_vector(state=state, interval=interval)
-            feature_columns = model_features[interval][model_key]
-
-            if interval == "week":
-                weather_features = df_forecast_weekly.loc[
-                    df_forecast_weekly["year_week"] == state["current_year_interval"]
-                ]
-                if weather_features.empty:
-                    raise ValueError(f"Weekly weather forecast not found for {state['current_year_interval']}")
-
-                input_features = date_features.merge(weather_features, on="year_week", how="left")
-            else:
-                input_features = date_features
-
-            input_features = input_features[feature_columns]
-            predicted_ride_id_count = regr_model.predict(input_features)[0]
-
-            forecast_data.append({
-                'rideable_type': state["rideable_type"],
-                'time' : state["current_year_interval"],
-                'year': state["current_year"],
-                interval : state["current_interval"],
-                'season': state["current_season"],
-                f'rides_2{interval}s_ago': state["rides_2ago"],
-                f'rides_last{interval}': state["rides_last"],
-                'rides': predicted_ride_id_count
-            })
-
-            state = update_forecast_state(
-                state=state,
-                predicted_rides=predicted_ride_id_count,
-                interval=interval,
-                period=self.period,
-                add_interval=self.add_interval,
-            )
-
-        return pd.DataFrame(forecast_data)
+    return pd.DataFrame(forecast_data)
 
 
-month = Interval_prop(
-    dataframe=df_month,
-    period=12,
-    offset=relativedelta(months=1),
-    date_format="%Y-%m",
-    sarima_freq="MS"
-)
-
-week = Interval_prop(
-    dataframe=df_week,
-    period=52,
-    offset=relativedelta(weeks=1),
-    date_format="%Y-%m-%d",
-    sarima_freq="W-MON"
-)
+month = get_interval_spec("month", dataframe=df_month)
+week = get_interval_spec("week", dataframe=df_week)
 
 interval_mapping = {
     "week": week,
@@ -197,7 +164,7 @@ def to_final_pd(d1, path_nonindexed, description):
 
 def forecast_rides_regressive(request: ForecastRequest, model, timeframe, description, model_key):
 
-    path = timeframe.dataframe.groupby(f'year_{request.interval}')["rides"].sum()
+    path = timeframe.dataframe.groupby(f'year_{timeframe.name}')["rides"].sum()
     path_nonindexed = path.reset_index()
 
     try:
@@ -206,14 +173,14 @@ def forecast_rides_regressive(request: ForecastRequest, model, timeframe, descri
         logger.error(f"Error fitting model: {e}")
         raise HTTPException(status_code=500, detail=f"Error fitting model: {str(e)}")
 
-    forecast_1_tot = timeframe.make_prediction(steps=request.steps,
-                                                    interval=request.interval, regr_model=fulldata, rideable_type=1, model_key=model_key)
-    forecast_2_tot = timeframe.make_prediction(steps=request.steps,
-                                                    interval=request.interval, regr_model=fulldata, rideable_type=2, model_key=model_key)
-    forecast_tot = merge_columns(forecast_1_tot, forecast_2_tot, interval=request.interval)
+    forecast_1_tot = make_prediction(steps=request.steps, timeframe=timeframe,
+                                     regr_model=fulldata, rideable_type=1, model_key=model_key)
+    forecast_2_tot = make_prediction(steps=request.steps, timeframe=timeframe,
+                                     regr_model=fulldata, rideable_type=2, model_key=model_key)
+    forecast_tot = merge_columns(forecast_1_tot, forecast_2_tot, interval=timeframe.name)
     forecast_tot = forecast_tot[['time','rides']]
 
-    d1 = {f'year_{request.interval}': forecast_tot['time'], 'rides': forecast_tot['rides'].astype(int)}
+    d1 = {f'year_{timeframe.name}': forecast_tot['time'], 'rides': forecast_tot['rides'].astype(int)}
 
     return(to_final_pd(d1, path_nonindexed, description))
 

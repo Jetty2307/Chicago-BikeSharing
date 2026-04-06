@@ -4,23 +4,12 @@ import os
 # from typing import Any, Tuple
 from typing import Any, Tuple, List, Dict
 from dotenv import load_dotenv
+from intervals import MODEL_FEATURES
 from weather_api import load_forecast_weather, load_historical_weather
 
 load_dotenv()
 
 today = pd.Timestamp.today(tz="America/Chicago").tz_localize(None).normalize()
-
-model_features = {
-    "week": {
-        "xgboost": ["rideable_type", "year", "week", "season", "rides_2weeks_ago", "rides_lastweek",
-                    "max_temp", "avg_temp", "min_temp", "total_rain", "total_snow"],
-        "GAM": ["rideable_type", "year", "week", "season", "avg_temp", "total_rain", "total_snow"],
-    },
-    "month": {
-        "xgboost": ["rideable_type", "year", "month", "season", "rides_2months_ago", "rides_lastmonth"],
-        "GAM": ["rideable_type", "year", "month", "season"],
-    },
-}
 
 def _clean_training_frame(df: pd.DataFrame) -> pd.DataFrame:
     return df.copy().replace([np.inf, -np.inf], np.nan).dropna()
@@ -113,7 +102,7 @@ def get_weather_forecast_df() -> pd.DataFrame:
 def fetch_features_xgboost(df: pd.DataFrame, interval: str, model_name: str) -> Tuple[pd.DataFrame, pd.Series]:
     df = _clean_training_frame(df)
     y = df["rides"]
-    feature_names = model_features[interval][model_name]
+    feature_names = MODEL_FEATURES[interval][model_name]
     X = df[feature_names]
     return X, y, feature_names
 
@@ -123,7 +112,7 @@ def fetch_features_gam(df: pd.DataFrame, interval: str, model_name: str) -> Tupl
 
     # order matters for GAM since we need to align with the model's expected feature order
 
-    feature_names = model_features[interval][model_name]
+    feature_names = MODEL_FEATURES[interval][model_name]
     X = df[feature_names].to_numpy()
     y = df["rides"].to_numpy()
     return X, y, feature_names
@@ -234,7 +223,7 @@ def attach_weekly_weather_features(
     interval: str,
 ) -> pd.DataFrame:
 
-    weather_cols = [column for column in model_features[interval][model] if column in weather_df.columns]
+    weather_cols = [column for column in MODEL_FEATURES[interval][model] if column in weather_df.columns]
 
     weather_week = (
         weather_df[["year_week"] + weather_cols]

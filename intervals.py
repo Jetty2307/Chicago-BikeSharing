@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any, Dict, List
 
 from dateutil.relativedelta import relativedelta
+from pygam import PoissonGAM, f, s
 
 
 MODEL_FEATURES = {
@@ -45,6 +46,11 @@ class IntervalSpec:
             return X_valid[:-self.validation_trim], y_valid[:-self.validation_trim]
         return X_valid, y_valid
 
+    def build_gam(self):
+        if self.name == "week":
+            return PoissonGAM(f(0) + s(1) + s(2, basis='cp') + f(3) + s(4) + s(5) + s(6))
+        return PoissonGAM(f(0) + s(1) + s(2, basis='cp') + f(3))
+
 
 INTERVAL_SPECS = {
     "week": IntervalSpec(
@@ -73,3 +79,10 @@ INTERVAL_SPECS = {
 def get_interval_spec(name: str, dataframe: Any = None) -> IntervalSpec:
     spec = INTERVAL_SPECS[name]
     return spec.with_dataframe(dataframe) if dataframe is not None else spec
+
+
+def build_interval_mapping(dataframes: Dict[str, Any]) -> Dict[str, IntervalSpec]:
+    return {
+        name: get_interval_spec(name, dataframe=dataframe)
+        for name, dataframe in dataframes.items()
+    }

@@ -169,8 +169,8 @@ def fit_xgboost(df, interval):
     X, y, feature_names = fetch_features_xgboost(df, interval, model_name="xgboost")
     logger.debug(f"Features: {feature_names}")
 
-    X_train, X_valid, y_train, y_valid = train_test_split(X, y, train_size=0.9,
-                        test_size=0.1, shuffle=False, random_state=1)
+    X_train, X_valid, y_train, y_valid = train_test_split(X, y, train_size=(1 - 2*interval_spec.period/len(X)),
+                        test_size= 2*interval_spec.period/len(X), shuffle=False, random_state=1)
     X_valid, y_valid = interval_spec.trim_validation(X_valid, y_valid)
 
     param_grid = {
@@ -271,20 +271,11 @@ def fit_GAM(df, interval):
     logger.debug(f"Features: {feature_names}")
     # "rideable_type", "year", interval, "season", "avg_temp", "total_rain", "total_snow"
 
-    split_idx = int(len(X) * 0.9)
+    split_idx = int(len(X) * (1 - 2*interval_spec.period/len(X)))
     X_train, y_train = X[:split_idx], y[:split_idx]
     X_valid, y_valid = X[split_idx:], y[split_idx:]
     X_valid, y_valid = interval_spec.trim_validation(X_valid, y_valid)
-
-    if interval == "week":
-        model = PoissonGAM(
-            f(0) + s(1) + s(2, basis='cp') + f(3) + s(4) + s(5) + s(6)
-        ).gridsearch(X_train, y_train)
-
-    if interval == "month":
-        model = PoissonGAM(
-            f(0) + s(1) + s(2, basis='cp') + f(3)
-        ).gridsearch(X_train, y_train)
+    model = interval_spec.build_gam().gridsearch(X_train, y_train)
 
     y_pred = model.predict(X_valid)
     val_r2 = r2_score(y_valid, y_pred)

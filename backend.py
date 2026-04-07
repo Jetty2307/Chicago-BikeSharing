@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 # from models import train_all_models, trained_models, training_status
 from dataframes_loader import load_dataframe
-from intervals import get_interval_spec
+from intervals import build_interval_mapping
 from model_loader import load_xgb, load_gam, training_status
 from feature_storage import (
     generate_next_vector,
@@ -130,12 +130,10 @@ def make_prediction(timeframe, steps, regr_model, rideable_type, model_key):
     return pd.DataFrame(forecast_data)
 
 
-month = get_interval_spec("month", dataframe=df_month)
-week = get_interval_spec("week", dataframe=df_week)
-
-interval_mapping = {
-    "week": week,
-    "month": month}
+interval_mapping = build_interval_mapping({
+    "week": df_week,
+    "month": df_month,
+})
 
 def merge_columns(forecast_classic, forecast_electric, interval):
 

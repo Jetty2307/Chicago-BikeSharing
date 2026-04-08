@@ -5,16 +5,18 @@ import shap
 import matplotlib.pyplot as plt
 import mlflow
 import mlflow.sklearn
+import mlflow.statsmodels
 import mlflow.xgboost
 from mlflow.tracking import MlflowClient
 from sklearn.model_selection import train_test_split, GridSearchCV, TimeSeriesSplit
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 from xgboost import XGBRegressor
 from pygam import GAM, s, f, LogisticGAM, PoissonGAM
 from dataframes_loader import load_dataframe
-from intervals import get_interval_spec
+from intervals import get_interval_spec, build_interval_mapping
 from ai_agent import make_summary, registry_decision
 from feature_storage import fetch_features_xgboost, fetch_features_gam
+from sarima_service import build_sarima_series, fit_sarima_model, forecast_with_fitted_sarima
 import os
 import joblib
 import tempfile
@@ -144,22 +146,141 @@ def quality_gate_rmse(model_name: str, new_rmse: float, max_rel_degradation: flo
     passed = new_rmse <= threshold
     return passed, baseline_rmse, baseline_run_id, baseline_version
 
-def train_all_models(week, month):
+def train_all_models(dataframes):
     print("TRAINING STARTED")
     global trained_models
     training_status["status"] = "in_progress"
+    interval_mapping = build_interval_mapping(dataframes)
     trained_models = {
-        'week': {
-            "xgboost": fit_xgboost(week, "week"),
-            "GAM": fit_GAM(week, "week")
-        },
-        'month': {
-            "xgboost": fit_xgboost(month, "month"),
-            "GAM": fit_GAM(month, "month")
+        interval_name: {
+            "xgboost": fit_xgboost(spec.dataframe, interval_name),
+            "GAM": fit_GAM(spec.dataframe, interval_name),
+            "sarima": fit_sarima(spec.dataframe, interval_name),
         }
+        for interval_name, spec in interval_mapping.items()
     }
 
     training_status["status"] = "ready"
+
+
+def compute_sarima_metrics(y_true, y_pred):
+    y_true = np.asarray(y_true, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
+
+    rmse = mean_squared_error(y_true, y_pred, squared=False)
+    mae = mean_absolute_error(y_true, y_pred)
+
+    denom = np.abs(y_true).sum()
+    wmape = float(np.abs(y_true - y_pred).sum() / denom) if denom > 0 else np.nan
+
+    return {
+        "rmse": float(rmse),
+        "mae": float(mae),
+        "wmape": wmape,
+    }
+
+
+def split_sarima_series(series, interval_spec):
+    valid_size = interval_spec.period
+
+    if len(series) <= valid_size:
+        raise ValueError(
+            f"Not enough data for SARIMA validation: len(series)={len(series)}, valid_size={valid_size}"
+        )
+
+    train = series.iloc[:-valid_size]
+    valid = series.iloc[-valid_size:]
+    return train, valid
+
+
+def fit_sarima(df, interval):
+    interval_spec = get_interval_spec(interval)
+    _, series = build_sarima_series(
+        dataframe=df,
+        interval=interval,
+        timeframe=interval_spec,
+    )
+
+    train, valid = split_sarima_series(series, interval_spec)
+
+    order = (1, 1, 1)
+    seasonal_order = (1, 0, 1, interval_spec.period)
+    model_name = f"sarima_{interval}"
+
+    with mlflow.start_run(run_name=model_name) as run:
+        fitted_valid_model = fit_sarima(
+            series=train,
+            order=order,
+            seasonal_order=seasonal_order,
+        )
+
+        valid_forecast = forecast_with_fitted_sarima(
+            fitted_valid_model,
+            steps=len(valid),
+        )
+        valid_forecast.index = valid.index
+
+        metrics = compute_sarima_metrics(valid, valid_forecast)
+
+        mlflow.log_param("model_type", "sarima")
+        mlflow.log_param("interval", interval)
+        mlflow.log_param("order", str(order))
+        mlflow.log_param("seasonal_order", str(seasonal_order))
+        mlflow.log_param("sample_size", len(train))
+
+        mlflow.log_metric("val_rmse", metrics["rmse"])
+        mlflow.log_metric("val_mae", metrics["mae"])
+        mlflow.log_metric("val_wmape", metrics["wmape"])
+
+        passed, baseline_rmse, baseline_run_id, baseline_version = quality_gate_rmse(model_name, metrics["rmse"])
+        mlflow.set_tag("quality_gate_passed", str(passed).lower())
+        if baseline_rmse is not None:
+            mlflow.log_metric("baseline_rmse", float(baseline_rmse))
+            mlflow.set_tag("baseline_run_id", str(baseline_run_id))
+            mlflow.set_tag("baseline_version", str(baseline_version))
+        mlflow.set_tag("max_rel_degradation", str(MAX_REL_DEGRADATION))
+
+        if not passed:
+            logger.warning(f"[GATE FAIL] {model_name}: val_rmse={metrics['rmse']:.4f} worse than baseline={baseline_rmse:.4f}")
+            return None
+
+        model_params = {
+            "model_type": "sarima",
+            "interval": interval,
+            "sample size": len(train),
+            "validation size": len(valid),
+            "order": str(order),
+            "seasonal_order": str(seasonal_order),
+            "rmse": metrics["rmse"],
+            "mae": metrics["mae"],
+            "wmape": metrics["wmape"],
+        }
+
+        description = make_summary(model_params)
+        mlflow.set_tag("performance_description", str(description))
+
+        decision = registry_decision(model_params=model_params, description=description)
+        mlflow.set_tag("ai_registry_decision", decision["decision"].lower())
+        mlflow.set_tag("ai_registry_reason", decision["reason"])
+        if decision["decision"] == "STOP":
+            logger.warning(f"[AI REGISTRY STOP] {model_name}: {decision['reason']}")
+            return None
+
+        final_model = fit_sarima_model(
+            series=series,
+            order=order,
+            seasonal_order=seasonal_order,
+        )
+
+        mlflow.statsmodels.log_model(final_model, artifact_path="model")
+        run_id = run.info.run_id
+
+    mlflow.register_model(
+        model_uri=f"runs:/{run_id}/model",
+        name=model_name,
+    )
+
+    return final_model
 
 def fit_xgboost(df, interval):
     # logger.debug(f"Input DataFrame shape: {df.shape}")
@@ -351,5 +472,8 @@ df_week = load_dataframe(os.environ["WEEK_FILE"])
 df_month = load_dataframe(os.environ["MONTH_FILE"])
 
 print(">>> STARTUP EVENT TRIGGERED <<<")
-train_all_models(df_week, df_month)
+train_all_models({
+    "week": df_week,
+    "month": df_month,
+})
 print(">>> TRAINING COMPLETED<<<")

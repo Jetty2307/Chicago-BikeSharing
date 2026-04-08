@@ -3,17 +3,19 @@
 # from typing import Annotated
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
-from statsmodels.tsa.statespace.sarimax import SARIMAX
 # from models import train_all_models, trained_models, training_status
 from dataframes_loader import load_dataframe
 from intervals import build_interval_mapping
 from model_loader import load_xgb, load_gam, training_status
+from sarima_service import fit_and_forecast_sarima
 from feature_storage import (
     generate_next_vector,
     get_weather_forecast_df,
     initialize_forecast_state,
     update_forecast_state,
 )
+
+import pandas as pd
 import logging
 import os
 
@@ -23,9 +25,6 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-
-import pandas as pd
-import numpy as np
 
 # Define the request model
 
@@ -208,51 +207,27 @@ def _forecast_with_trained_model(request: ForecastRequest, model_key: str):
 
 @app.post("/forecast_bikes_sarima")
 def forecast_rides_sarima(request: ForecastRequest):
-    # Prepare and fit SARIMAX model
     timeframe = interval_mapping.get(request.interval)
     if not timeframe:
         raise ValueError(f"Invalid interval: {request.interval}")
 
-    path_df = timeframe.dataframe.groupby(f'year_{request.interval}')["rides"].sum().reset_index()
-
-    path_df[f'year_{request.interval}'] = pd.to_datetime(
-        path_df[f'year_{request.interval}'],
-        format=timeframe.date_format
-    )
-
-    path_nonindexed = path_df.copy()
-    path_nonindexed[f'year_{request.interval}'] = (
-                    path_nonindexed[f'year_{request.interval}']
-                    .dt.strftime(timeframe.date_format)
-    )
-
-    path = (
-        path_df
-        .set_index(f'year_{request.interval}')["rides"]
-        .asfreq(timeframe.sarima_freq)
-    )
-
-    y = np.log1p(path)
-
-    model = SARIMAX(y, order=(1, 1, 1), seasonal_order=(1, 0, 1, timeframe.period),
-                    enforce_stationarity=False,
-                    enforce_invertibility=False)
-
-    results = model.fit(disp=False)
-
-
-    # Forecast future rides
     try:
-        forecast_log = results.get_forecast(steps=request.steps).predicted_mean
-        forecast = np.expm1(forecast_log).clip(lower=0)
+        result = fit_and_forecast_sarima(
+            dataframe=timeframe.dataframe,
+            interval=request.interval,
+            timeframe=timeframe,
+            steps=request.steps,
+        )
     except Exception as e:
         logger.error(f"Error generating forecast: {e}")
         raise HTTPException(status_code=500, detail="Error generating forecast.")
 
-    d1 = {f'year_{request.interval}': forecast.index.strftime(timeframe.date_format),
-          'rides': forecast.values.round().astype(int)}
+    d1 = {
+        f'year_{request.interval}': result.forecast.index.strftime(timeframe.date_format),
+        'rides': result.forecast.values.round().astype(int)
+    }
 
-    return (to_final_pd(d1, path_nonindexed, description = None))
+    return to_final_pd(d1, result.historical, description=None)
 
 @app.post("/forecast_bikes_xgboost")
 def forecast_rides_xgboost(request: ForecastRequest):

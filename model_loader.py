@@ -1,4 +1,5 @@
 from mlflow.tracking import MlflowClient
+import mlflow.statsmodels
 import mlflow.xgboost
 import joblib
 
@@ -49,5 +50,20 @@ def load_gam(interval: str):
     tags = run.data.tags
 
     return joblib.load(f"{local_path}/gam_model_{interval}.pkl"), tags.get('performance_description')
+
+
+def load_sarima(interval: str):
+    client = MlflowClient()
+    model_name = f"sarima_{interval}"
+
+    versions = client.get_latest_versions(model_name)
+    latest = max(versions, key=lambda v: int(v.version))
+    model_uri = f"models:/{model_name}/{latest.version}"
+
+    run_id = latest.run_id
+    run = client.get_run(run_id)
+    tags = run.data.tags
+
+    return mlflow.statsmodels.load_model(model_uri), tags.get("performance_description")
 
 training_status = {"status": "ready"}

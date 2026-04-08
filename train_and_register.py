@@ -1,4 +1,5 @@
 import logging
+from itertools import product
 import pandas as pd
 import numpy as np
 import shap
@@ -155,7 +156,7 @@ def train_all_models(dataframes):
         interval_name: {
             "xgboost": fit_xgboost(spec.dataframe, interval_name),
             "GAM": fit_GAM(spec.dataframe, interval_name),
-            "sarima": fit_sarima(spec.dataframe, interval_name),
+            "sarima": train_sarima_model(spec.dataframe, interval_name),
         }
         for interval_name, spec in interval_mapping.items()
     }
@@ -193,7 +194,18 @@ def split_sarima_series(series, interval_spec):
     return train, valid
 
 
-def fit_sarima(df, interval):
+def iter_sarima_configs(period):
+    for p, d, q, P, D, Q in product([0, 1], repeat=6):
+        if p == q == P == Q == 0:
+            continue
+
+        yield {
+            "order": (p, d, q),
+            "seasonal_order": (P, D, Q, period),
+        }
+
+
+def train_sarima_model(df, interval):
     interval_spec = get_interval_spec(interval)
     _, series = build_sarima_series(
         dataframe=df,
@@ -202,37 +214,61 @@ def fit_sarima(df, interval):
     )
 
     train, valid = split_sarima_series(series, interval_spec)
-
-    order = (1, 1, 1)
-    seasonal_order = (1, 0, 1, interval_spec.period)
     model_name = f"sarima_{interval}"
 
     with mlflow.start_run(run_name=model_name) as run:
-        fitted_valid_model = fit_sarima(
-            series=train,
-            order=order,
-            seasonal_order=seasonal_order,
-        )
+        best_order = None
+        best_seasonal_order = None
+        best_metrics = None
+        successful_configs = 0
+        tested_configs = 0
 
-        valid_forecast = forecast_with_fitted_sarima(
-            fitted_valid_model,
-            steps=len(valid),
-        )
-        valid_forecast.index = valid.index
+        for config in iter_sarima_configs(interval_spec.period):
+            tested_configs += 1
+            order = config["order"]
+            seasonal_order = config["seasonal_order"]
 
-        metrics = compute_sarima_metrics(valid, valid_forecast)
+            try:
+                fitted_valid_model = fit_sarima_model(
+                    series=train,
+                    order=order,
+                    seasonal_order=seasonal_order,
+                )
+
+                valid_forecast = forecast_with_fitted_sarima(
+                    fitted_valid_model,
+                    steps=len(valid),
+                )
+                valid_forecast.index = valid.index
+                metrics = compute_sarima_metrics(valid, valid_forecast)
+                successful_configs += 1
+            except Exception as exc:
+                logger.warning(
+                    f"[SARIMA SKIP] {model_name}: order={order}, seasonal_order={seasonal_order}, error={exc}"
+                )
+                continue
+
+            if best_metrics is None or metrics["rmse"] < best_metrics["rmse"]:
+                best_order = order
+                best_seasonal_order = seasonal_order
+                best_metrics = metrics
+
+        if best_metrics is None:
+            raise ValueError(f"No valid SARIMA configuration found for {model_name}")
 
         mlflow.log_param("model_type", "sarima")
         mlflow.log_param("interval", interval)
-        mlflow.log_param("order", str(order))
-        mlflow.log_param("seasonal_order", str(seasonal_order))
+        mlflow.log_param("order", str(best_order))
+        mlflow.log_param("seasonal_order", str(best_seasonal_order))
         mlflow.log_param("sample_size", len(train))
+        mlflow.log_param("tested_configs", tested_configs)
+        mlflow.log_param("successful_configs", successful_configs)
 
-        mlflow.log_metric("val_rmse", metrics["rmse"])
-        mlflow.log_metric("val_mae", metrics["mae"])
-        mlflow.log_metric("val_wmape", metrics["wmape"])
+        mlflow.log_metric("val_rmse", best_metrics["rmse"])
+        mlflow.log_metric("val_mae", best_metrics["mae"])
+        mlflow.log_metric("val_wmape", best_metrics["wmape"])
 
-        passed, baseline_rmse, baseline_run_id, baseline_version = quality_gate_rmse(model_name, metrics["rmse"])
+        passed, baseline_rmse, baseline_run_id, baseline_version = quality_gate_rmse(model_name, best_metrics["rmse"])
         mlflow.set_tag("quality_gate_passed", str(passed).lower())
         if baseline_rmse is not None:
             mlflow.log_metric("baseline_rmse", float(baseline_rmse))
@@ -241,7 +277,7 @@ def fit_sarima(df, interval):
         mlflow.set_tag("max_rel_degradation", str(MAX_REL_DEGRADATION))
 
         if not passed:
-            logger.warning(f"[GATE FAIL] {model_name}: val_rmse={metrics['rmse']:.4f} worse than baseline={baseline_rmse:.4f}")
+            logger.warning(f"[GATE FAIL] {model_name}: val_rmse={best_metrics['rmse']:.4f} worse than baseline={baseline_rmse:.4f}")
             return None
 
         model_params = {
@@ -249,11 +285,13 @@ def fit_sarima(df, interval):
             "interval": interval,
             "sample size": len(train),
             "validation size": len(valid),
-            "order": str(order),
-            "seasonal_order": str(seasonal_order),
-            "rmse": metrics["rmse"],
-            "mae": metrics["mae"],
-            "wmape": metrics["wmape"],
+            "order": str(best_order),
+            "seasonal_order": str(best_seasonal_order),
+            "tested configs": tested_configs,
+            "successful configs": successful_configs,
+            "rmse": best_metrics["rmse"],
+            "mae": best_metrics["mae"],
+            "wmape": best_metrics["wmape"],
         }
 
         description = make_summary(model_params)
@@ -268,8 +306,8 @@ def fit_sarima(df, interval):
 
         final_model = fit_sarima_model(
             series=series,
-            order=order,
-            seasonal_order=seasonal_order,
+            order=best_order,
+            seasonal_order=best_seasonal_order,
         )
 
         mlflow.statsmodels.log_model(final_model, artifact_path="model")

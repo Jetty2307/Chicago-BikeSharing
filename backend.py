@@ -6,8 +6,8 @@ from pydantic import BaseModel
 # from models import train_all_models, trained_models, training_status
 from dataframes_loader import load_dataframe
 from intervals import build_interval_mapping
-from model_loader import load_xgb, load_gam, training_status
-from sarima_service import fit_and_forecast_sarima
+from model_loader import load_xgb, load_gam, load_sarima, training_status
+from sarima_service import build_sarima_series, forecast_with_fitted_sarima
 from feature_storage import (
     generate_next_vector,
     get_weather_forecast_df,
@@ -50,11 +50,13 @@ def load_models():
     MODELS = {
         'week': {
             "xgboost": load_xgb("week")[0],
-            "GAM": load_gam("week")[0]
+            "GAM": load_gam("week")[0],
+            "sarima": load_sarima("week")[0],
         },
         'month': {
             "xgboost": load_xgb("month")[0],
-            "GAM": load_gam("month")[0]
+            "GAM": load_gam("month")[0],
+            "sarima": load_sarima("month")[0],
         }
     }
 
@@ -62,11 +64,13 @@ def load_models():
     DESCRIPTIONS = {
         'week': {
             "xgboost": load_xgb("week")[1],
-            "GAM": load_gam("week")[1]
+            "GAM": load_gam("week")[1],
+            "sarima": load_sarima("week")[1],
         },
         'month': {
             "xgboost": load_xgb("month")[1],
-            "GAM": load_gam("month")[1]
+            "GAM": load_gam("month")[1],
+            "sarima": load_sarima("month")[1],
         }
     }
     global df_forecast_weekly
@@ -209,25 +213,30 @@ def _forecast_with_trained_model(request: ForecastRequest, model_key: str):
 def forecast_rides_sarima(request: ForecastRequest):
     timeframe = interval_mapping.get(request.interval)
     if not timeframe:
-        raise ValueError(f"Invalid interval: {request.interval}")
+        raise HTTPException(status_code=400, detail=f"Invalid interval: {request.interval}")
+
+    if training_status["status"] != "ready":
+        raise HTTPException(status_code=503, detail="Model is still training")
 
     try:
-        result = fit_and_forecast_sarima(
+        model = MODELS[request.interval]["sarima"]
+        description = DESCRIPTIONS[request.interval]["sarima"]
+        historical, _ = build_sarima_series(
             dataframe=timeframe.dataframe,
             interval=request.interval,
             timeframe=timeframe,
-            steps=request.steps,
         )
+        forecast = forecast_with_fitted_sarima(model, steps=request.steps)
     except Exception as e:
         logger.error(f"Error generating forecast: {e}")
         raise HTTPException(status_code=500, detail="Error generating forecast.")
 
     d1 = {
-        f'year_{request.interval}': result.forecast.index.strftime(timeframe.date_format),
-        'rides': result.forecast.values.round().astype(int)
+        f'year_{request.interval}': forecast.index.strftime(timeframe.date_format),
+        'rides': forecast.values.round().astype(int)
     }
 
-    return to_final_pd(d1, result.historical, description=None)
+    return to_final_pd(d1, historical, description=description)
 
 @app.post("/forecast_bikes_xgboost")
 def forecast_rides_xgboost(request: ForecastRequest):

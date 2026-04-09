@@ -15,6 +15,8 @@ Data:
 ---------------------
 The Divvy data is taken from https://divvy-tripdata.s3.amazonaws.com/index.html.
 
+Here is my [dashboard](https://app.hex.tech/019c47a9-f26e-7002-933e-b7c1d15876fa/app/Chicago-Bikes-Sharing-Stats-2020---2025-032YKwabAGzllw1oj3movx/latest) with some aggregated rides data.
+
 Technical solution: 
 ---------------------
 The project is close to production-ready solution and based on modern industrial standards and data pipelines.

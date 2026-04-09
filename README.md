@@ -36,7 +36,7 @@ Project structure and data pipeline:
  
 3. Features engineering and training the models with their evaluation, registration and feature importance control
    - extracting features from the dataframes and their transformation if needed
-   - training and validation of XGBoost and PyGAM models for weekly and monthly predictions with a new data point(s) (SARIMA is called at the runtime)
+   - training and validation of SARIMA, XGBoost and PyGAM models for weekly and monthly predictions with a new data point(s) 
    - registration of the models with MLflow if on validation their performance does not deteriorate
    - evaluating the feature importance with SHAP values (XGBoost) and partial dependence (GAM) and saving as model artefacts in MLflow registry
   

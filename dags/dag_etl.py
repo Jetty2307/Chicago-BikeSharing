@@ -327,6 +327,15 @@ with DAG(
         ),
     )
 
+    t_weather = BashOperator(
+        task_id="run_weather",
+        bash_command=(
+            f"cd {PROJECT_DIR} && "
+            f"source {CONDA_PATH} {CONDA_ENV} && "
+            f"python weather.py"
+        ),
+    )
+
     t_dbt_run = BashOperator(
         task_id="dbt_run",
         bash_command=(
@@ -375,6 +384,7 @@ with DAG(
         >> t_prepare_sql
         >> t_insert_into_merged
         >> t_create_last_one
+        >> t_weather
         >> t_dbt_run
         >> t_dbt_test
         >> t_transform
@@ -392,6 +402,7 @@ with DAG(
         t_dbt_run,
         t_dbt_test,
         t_transform,
+        t_weather,
         t_train_models,
         t_commit,
     ] >> t_cleanup

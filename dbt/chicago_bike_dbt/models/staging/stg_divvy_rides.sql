@@ -15,6 +15,9 @@ typed as (
         date_part('week', started_at)::int as week,
         to_char(started_at, 'YYYY-MM') as year_month,
         to_char(date_trunc('week', started_at), 'YYYY-MM-DD') as year_week,
+        started_at::date as date,
+        extract(doy from started_at)::int as day_of_year,
+        extract(isodow from started_at)::int as day_of_week,
         ((date_part('month', started_at)::int - 1) / 3) as season,
         case
             when rideable_type = 'classic_bike' then 1

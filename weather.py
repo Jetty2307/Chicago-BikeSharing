@@ -16,15 +16,15 @@ if not ENGINE_URL:
 
 engine = create_engine(ENGINE_URL)
 
-STAGING_SCHEMA = os.getenv("DBT_STAGING_SCHEMA", "staging")
 RAW_SCHEMA = os.getenv("DBT_RAW_SCHEMA", "public")
+MERGED_TABLE = "merged"
 WEATHER_TABLE = "weather_daily"
 
 FIRST_LAST_DAY = f"""
 SELECT
     to_char(min(started_at), 'YYYY-MM-DD') AS first_day,
     to_char(max(started_at), 'YYYY-MM-DD') AS last_day
-FROM {STAGING_SCHEMA}.stg_divvy_rides
+FROM {RAW_SCHEMA}.{MERGED_TABLE}
 """
 
 with engine.connect() as conn:

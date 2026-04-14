@@ -1,6 +1,6 @@
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 from dateutil.relativedelta import relativedelta
 from pygam import PoissonGAM, f, s
@@ -16,6 +16,25 @@ MODEL_FEATURES = {
         "xgboost": ["rideable_type", "year", "month", "season", "rides_2months_ago", "rides_lastmonth"],
         "GAM": ["rideable_type", "year", "month", "season"],
     },
+    "day": {
+        "xgboost": ["rideable_type", "year", "month", "season", "day_of_year", "day_of_week","temp", "total_rain",
+    "total_snow"],
+        "GAM": ["rideable_type", "year", "season", "day_of_year", "day_of_week","temp", "total_rain", "total_snow"],
+    },
+}
+
+GAM_TERM_BUILDERS: Dict[str, Callable[[int], Any]] = {
+    "rideable_type": lambda idx: f(idx),
+    "year": lambda idx: s(idx),
+    "week": lambda idx: s(idx, basis="cp"),
+    "month": lambda idx: s(idx, basis="cp"),
+    "day_of_year": lambda idx: s(idx, basis="cp"),
+    "day_of_week": lambda idx: f(idx),
+    "season": lambda idx: f(idx),
+    "temp": lambda idx: s(idx),
+    "avg_temp": lambda idx: s(idx),
+    "total_rain": lambda idx: s(idx),
+    "total_snow": lambda idx: s(idx),
 }
 
 
@@ -47,9 +66,17 @@ class IntervalSpec:
         return X_valid, y_valid
 
     def build_gam(self):
-        if self.name == "week":
-            return PoissonGAM(f(0) + s(1) + s(2, basis='cp') + f(3) + s(4) + s(5) + s(6))
-        return PoissonGAM(f(0) + s(1) + s(2, basis='cp') + f(3))
+        gam_features = self.feature_columns("GAM")
+        missing_features = [feature for feature in gam_features if feature not in GAM_TERM_BUILDERS]
+        if missing_features:
+            raise ValueError(f"Missing GAM term builders for features: {missing_features}")
+
+        terms = None
+        for idx, feature in enumerate(gam_features):
+            term = GAM_TERM_BUILDERS[feature](idx)
+            terms = term if terms is None else terms + term
+
+        return PoissonGAM(terms)
 
 
 INTERVAL_SPECS = {
@@ -72,6 +99,16 @@ INTERVAL_SPECS = {
         model_features=MODEL_FEATURES["month"],
         uses_weather=False,
         validation_trim=0,
+    ),
+    "day": IntervalSpec(
+        name="day",
+        period=365,
+        offset=relativedelta(days=1),
+        date_format="%Y-%m-%d",
+        sarima_freq="D",
+        model_features=MODEL_FEATURES["day"],
+        uses_weather=True,
+        validation_trim=1,
     ),
 }
 

@@ -22,6 +22,24 @@ engine = create_engine(ENGINE_URL)
 
 MART_SCHEMA = os.getenv("DBT_MART_SCHEMA", "analytics")
 
+DAY_QUERY = f"""
+SELECT
+    date,
+    rideable_type_code as rideable_type,
+    year,
+    month,
+    season,
+    day_of_year,
+    day_of_week,
+    rides,
+    rides_lastday,
+    temp,
+    total_rain,
+    total_snow
+FROM {MART_SCHEMA}.mart_rides_daily
+ORDER BY date, rideable_type
+"""
+
 WEEK_QUERY = f"""
 SELECT
     year_week,
@@ -55,17 +73,17 @@ FROM {MART_SCHEMA}.mart_rides_monthly
 ORDER BY year, month, rideable_type
 """
 
-
 def fetch_df(query: str, engine=engine) -> pd.DataFrame:
     with engine.connect() as conn:
         return pd.read_sql(query, conn)
 
 
-def build_week_month() -> Tuple[pd.DataFrame, pd.DataFrame]:
+def build_interval_table() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    df_day = fetch_df(DAY_QUERY)
     df_week = fetch_df(WEEK_QUERY)
     df_month = fetch_df(MONTH_QUERY)
 
-    return df_week, df_month
+    return df_day, df_week, df_month
 
 
 def export_tsv(df: pd.DataFrame, path: str) -> None:
@@ -73,7 +91,8 @@ def export_tsv(df: pd.DataFrame, path: str) -> None:
 
 
 if __name__ == "__main__":
-    df_week, df_month = build_week_month()
+    df_day, df_week, df_month = build_interval_table()
 
+    export_tsv(df_day, os.environ["DAY_FILE"])
     export_tsv(df_week, os.environ["WEEK_FILE"])
     export_tsv(df_month, os.environ["MONTH_FILE"])

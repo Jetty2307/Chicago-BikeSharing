@@ -28,11 +28,11 @@ Project structure and data pipeline:
 1. Data extraction, loading and transformation (ELT)
    This step is orchestrated in Airflow and run on a monthly basis, as the data from Divvy service is updated every month. It    goes as follows:
 
-     - new data uploaded to the local host from the web with REST API requests
+     - new data uploaded to the local host from the web with REST APIs requests
      - the new data from directories is inserted to the local PostgreSQL database
      - aggregated tables are formed for weekly and monthly bike usage depending on their type (electric or classic) with SQL queries in dbt
      - additionally the historical weather data are downloaded from [open-meteo](https://open-meteo.com) to form weather features (temperature, rain, snow), and they are also stored in the DB,
-     and joined with time features (year, season, week/month/ lags) for the rides with dbt.
+     and joined with time features (year, season, day/week/month/ lags) for the rides with dbt.
     
 2. Tests for ELT procedures and resulting output
  
@@ -45,9 +45,9 @@ Project structure and data pipeline:
 4. AI description of the current model performance with Llama 3 (or Deepseek if the description of Llama 3 is unsatisfactory) and giving an ability to AI to prevent a new trained model from registry if it evaluates it as bad.
      
 5. App embedding:
-   - backend (FastAPI + Uvicorn) for taking the input for models inference and fetching the models output + SARIMA run if called
+   - backend (FastAPI + Uvicorn) for taking the input for models inference and fetching the models output
    - frontend (Streamlit) for the user's selection of the model and predictions parameters and visualization of the result
      
-     The user can select a certain model, and the predictions for upcoming weeks or months for a certain period of time will be shown.
+     The user can select a certain model, and the predictions for upcoming number of weeks or months will be shown.
      
 6. App containerization with Docker

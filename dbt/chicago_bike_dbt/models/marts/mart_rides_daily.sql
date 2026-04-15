@@ -9,7 +9,7 @@ with grouped as (
         day_of_week,
         count(*) as rides
     from {{ ref('stg_divvy_rides') }}
-    group by 1, 2, 3, 4, 5
+    group by 1, 2, 3, 4, 5, 6, 7
 ),
 
 pre as (
@@ -46,7 +46,7 @@ select
     total_rain,
     total_snow
 from pre
-left join weather_week using (date)
+left join weather_day using (date)
 where rides_lastday is not null
 order by date, rideable_type
 

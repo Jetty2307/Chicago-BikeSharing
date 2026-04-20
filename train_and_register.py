@@ -9,7 +9,7 @@ import mlflow.sklearn
 import mlflow.statsmodels
 import mlflow.xgboost
 from mlflow.tracking import MlflowClient
-from sklearn.model_selection import train_test_split, GridSearchCV, TimeSeriesSplit
+from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 from xgboost import XGBRegressor
 from pygam import GAM, s, f, LogisticGAM, PoissonGAM
@@ -183,15 +183,38 @@ def compute_sarima_metrics(y_true, y_pred):
 
 def split_sarima_series(series, interval_spec):
     valid_size = interval_spec.period
+    offset_size = interval_spec.validation_offset
 
-    if len(series) <= valid_size:
+    if len(series) <= valid_size + offset_size:
         raise ValueError(
-            f"Not enough data for SARIMA validation: len(series)={len(series)}, valid_size={valid_size}"
+            "Not enough data for SARIMA validation: "
+            f"len(series)={len(series)}, valid_size={valid_size}, offset_size={offset_size}"
         )
 
-    train = series.iloc[:-valid_size]
-    valid = series.iloc[-valid_size:]
+    valid_start = len(series) - valid_size - offset_size
+    valid_end = len(series) - offset_size if offset_size else len(series)
+
+    train = series.iloc[:valid_start]
+    valid = series.iloc[valid_start:valid_end]
     return train, valid
+
+
+def split_regression_frame(X, y, interval_spec):
+    valid_rows = interval_spec.period * interval_spec.rows_per_period
+    offset_rows = interval_spec.validation_offset * interval_spec.rows_per_period
+
+    if len(X) <= valid_rows + offset_rows:
+        raise ValueError(
+            "Not enough data for regression validation: "
+            f"len(X)={len(X)}, valid_rows={valid_rows}, offset_rows={offset_rows}"
+        )
+
+    valid_start = len(X) - valid_rows - offset_rows
+    valid_end = len(X) - offset_rows if offset_rows else len(X)
+
+    X_train, y_train = X[:valid_start], y[:valid_start]
+    X_valid, y_valid = X[valid_start:valid_end], y[valid_start:valid_end]
+    return X_train, X_valid, y_train, y_valid
 
 
 def iter_sarima_configs(period):
@@ -328,8 +351,7 @@ def fit_xgboost(df, interval):
     X, y, feature_names = fetch_features_xgboost(df, interval, model_name="xgboost")
     logger.debug(f"Features: {feature_names}")
 
-    X_train, X_valid, y_train, y_valid = train_test_split(X, y, train_size=(1 - 2*interval_spec.period/len(X)),
-                        test_size= 2*interval_spec.period/len(X), shuffle=False, random_state=1)
+    X_train, X_valid, y_train, y_valid = split_regression_frame(X, y, interval_spec)
     X_valid, y_valid = interval_spec.trim_validation(X_valid, y_valid)
 
     param_grid = {
@@ -430,9 +452,7 @@ def fit_GAM(df, interval):
     logger.debug(f"Features: {feature_names}")
     # "rideable_type", "year", interval, "season", "avg_temp", "total_rain", "total_snow"
 
-    split_idx = int(len(X) * (1 - 2*interval_spec.period/len(X)))
-    X_train, y_train = X[:split_idx], y[:split_idx]
-    X_valid, y_valid = X[split_idx:], y[split_idx:]
+    X_train, X_valid, y_train, y_valid = split_regression_frame(X, y, interval_spec)
     X_valid, y_valid = interval_spec.trim_validation(X_valid, y_valid)
     model = interval_spec.build_gam().gridsearch(X_train, y_train)
 

@@ -40,6 +40,7 @@ select
     season,
     day_of_year,
     day_of_week,
+    case when day_of_week in (6, 7) then 1 else 0 end as is_weekend,
     rides,
     rides_lastday,
     temp,

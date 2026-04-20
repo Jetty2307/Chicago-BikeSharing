@@ -1,6 +1,6 @@
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 from dateutil.relativedelta import relativedelta
 from pygam import PoissonGAM, f, s
@@ -16,6 +16,27 @@ MODEL_FEATURES = {
         "xgboost": ["rideable_type", "year", "month", "season", "rides_2months_ago", "rides_lastmonth"],
         "GAM": ["rideable_type", "year", "month", "season"],
     },
+    "day": {
+        "xgboost": ["rideable_type", "year", "month", "season", "day_of_year", "day_of_week", "is_weekend", "temp",
+                    "total_rain", "total_snow"],
+        "GAM": ["rideable_type", "year", "season", "day_of_year", "day_of_week", "is_weekend",
+                "temp", "total_rain", "total_snow"],
+    },
+}
+
+GAM_TERM_BUILDERS: Dict[str, Callable[[int], Any]] = {
+    "rideable_type": lambda idx: f(idx),
+    "year": lambda idx: s(idx),
+    "week": lambda idx: s(idx, basis="cp"),
+    "month": lambda idx: s(idx, basis="cp"),
+    "day_of_year": lambda idx: s(idx, basis="cp"),
+    "day_of_week": lambda idx: f(idx),
+    "is_weekend": lambda idx: f(idx),
+    "season": lambda idx: f(idx),
+    "temp": lambda idx: s(idx),
+    "avg_temp": lambda idx: s(idx),
+    "total_rain": lambda idx: s(idx),
+    "total_snow": lambda idx: s(idx),
 }
 
 
@@ -24,6 +45,8 @@ class IntervalSpec:
     name: str
     period: int
     offset: relativedelta
+    validation_offset: int
+    rows_per_period: int
     date_format: str
     sarima_freq: str
     model_features: Dict[str, List[str]]
@@ -43,20 +66,43 @@ class IntervalSpec:
 
     def trim_validation(self, X_valid, y_valid):
         if self.validation_trim:
-            return X_valid[:-self.validation_trim], y_valid[:-self.validation_trim]
+            trim_rows = self.validation_trim * self.rows_per_period
+            return X_valid[:-trim_rows], y_valid[:-trim_rows]
         return X_valid, y_valid
 
     def build_gam(self):
-        if self.name == "week":
-            return PoissonGAM(f(0) + s(1) + s(2, basis='cp') + f(3) + s(4) + s(5) + s(6))
-        return PoissonGAM(f(0) + s(1) + s(2, basis='cp') + f(3))
+        gam_features = self.feature_columns("GAM")
+        missing_features = [feature for feature in gam_features if feature not in GAM_TERM_BUILDERS]
+        if missing_features:
+            raise ValueError(f"Missing GAM term builders for features: {missing_features}")
+
+        terms = None
+        for idx, feature in enumerate(gam_features):
+            term = GAM_TERM_BUILDERS[feature](idx)
+            terms = term if terms is None else terms + term
+
+        return PoissonGAM(terms)
 
 
 INTERVAL_SPECS = {
+    "day": IntervalSpec(
+            name="day",
+            period=365,
+            offset=relativedelta(days=1),
+            validation_offset=90,
+            rows_per_period=2,
+            date_format="%Y-%m-%d",
+            sarima_freq="D",
+            model_features=MODEL_FEATURES["day"],
+            uses_weather=True,
+            validation_trim=1,
+    ),
     "week": IntervalSpec(
         name="week",
         period=52,
         offset=relativedelta(weeks=1),
+        validation_offset=0,
+        rows_per_period=2,
         date_format="%Y-%m-%d",
         sarima_freq="W-MON",
         model_features=MODEL_FEATURES["week"],
@@ -67,14 +113,16 @@ INTERVAL_SPECS = {
         name="month",
         period=12,
         offset=relativedelta(months=1),
+        validation_offset=0,
+        rows_per_period=2,
         date_format="%Y-%m",
         sarima_freq="MS",
         model_features=MODEL_FEATURES["month"],
         uses_weather=False,
         validation_trim=0,
     ),
-}
 
+}
 
 def get_interval_spec(name: str, dataframe: Any = None) -> IntervalSpec:
     spec = INTERVAL_SPECS[name]

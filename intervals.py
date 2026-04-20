@@ -17,9 +17,10 @@ MODEL_FEATURES = {
         "GAM": ["rideable_type", "year", "month", "season"],
     },
     "day": {
-        "xgboost": ["rideable_type", "year", "month", "season", "day_of_year", "day_of_week","temp", "total_rain",
-    "total_snow"],
-        "GAM": ["rideable_type", "year", "season", "day_of_year", "day_of_week","temp", "total_rain", "total_snow"],
+        "xgboost": ["rideable_type", "year", "month", "season", "day_of_year", "day_of_week", "is_weekend", "temp",
+                    "total_rain", "total_snow"],
+        "GAM": ["rideable_type", "year", "season", "day_of_year", "day_of_week", "is_weekend",
+                "temp", "total_rain", "total_snow"],
     },
 }
 
@@ -30,6 +31,7 @@ GAM_TERM_BUILDERS: Dict[str, Callable[[int], Any]] = {
     "month": lambda idx: s(idx, basis="cp"),
     "day_of_year": lambda idx: s(idx, basis="cp"),
     "day_of_week": lambda idx: f(idx),
+    "is_weekend": lambda idx: f(idx),
     "season": lambda idx: f(idx),
     "temp": lambda idx: s(idx),
     "avg_temp": lambda idx: s(idx),
@@ -43,6 +45,8 @@ class IntervalSpec:
     name: str
     period: int
     offset: relativedelta
+    validation_offset: int
+    rows_per_period: int
     date_format: str
     sarima_freq: str
     model_features: Dict[str, List[str]]
@@ -62,7 +66,8 @@ class IntervalSpec:
 
     def trim_validation(self, X_valid, y_valid):
         if self.validation_trim:
-            return X_valid[:-self.validation_trim], y_valid[:-self.validation_trim]
+            trim_rows = self.validation_trim * self.rows_per_period
+            return X_valid[:-trim_rows], y_valid[:-trim_rows]
         return X_valid, y_valid
 
     def build_gam(self):
@@ -80,10 +85,24 @@ class IntervalSpec:
 
 
 INTERVAL_SPECS = {
+    "day": IntervalSpec(
+            name="day",
+            period=365,
+            offset=relativedelta(days=1),
+            validation_offset=90,
+            rows_per_period=2,
+            date_format="%Y-%m-%d",
+            sarima_freq="D",
+            model_features=MODEL_FEATURES["day"],
+            uses_weather=True,
+            validation_trim=1,
+    ),
     "week": IntervalSpec(
         name="week",
         period=52,
         offset=relativedelta(weeks=1),
+        validation_offset=0,
+        rows_per_period=2,
         date_format="%Y-%m-%d",
         sarima_freq="W-MON",
         model_features=MODEL_FEATURES["week"],
@@ -94,24 +113,16 @@ INTERVAL_SPECS = {
         name="month",
         period=12,
         offset=relativedelta(months=1),
+        validation_offset=0,
+        rows_per_period=2,
         date_format="%Y-%m",
         sarima_freq="MS",
         model_features=MODEL_FEATURES["month"],
         uses_weather=False,
         validation_trim=0,
     ),
-    "day": IntervalSpec(
-        name="day",
-        period=365,
-        offset=relativedelta(days=1),
-        date_format="%Y-%m-%d",
-        sarima_freq="D",
-        model_features=MODEL_FEATURES["day"],
-        uses_weather=True,
-        validation_trim=1,
-    ),
-}
 
+}
 
 def get_interval_spec(name: str, dataframe: Any = None) -> IntervalSpec:
     spec = INTERVAL_SPECS[name]

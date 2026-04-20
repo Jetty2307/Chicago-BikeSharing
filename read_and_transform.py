@@ -25,12 +25,13 @@ MART_SCHEMA = os.getenv("DBT_MART_SCHEMA", "analytics")
 DAY_QUERY = f"""
 SELECT
     date,
-    rideable_type_code as rideable_type,
+    rideable_type,
     year,
     month,
     season,
     day_of_year,
     day_of_week,
+    is_weekend,
     rides,
     rides_lastday,
     temp,

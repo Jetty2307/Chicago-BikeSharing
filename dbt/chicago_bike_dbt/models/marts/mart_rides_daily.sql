@@ -33,7 +33,7 @@ weather_day as
     )
 
 select
-    date,
+    date as year_day,
     rideable_type_code as rideable_type,
     year,
     month,
@@ -49,5 +49,5 @@ select
 from pre
 left join weather_day using (date)
 where rides_lastday is not null
-order by date, rideable_type
+order by year_day, rideable_type
 

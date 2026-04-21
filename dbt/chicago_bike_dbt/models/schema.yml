@@ -53,6 +53,7 @@ models:
           - not_null
           - accepted_values:
               values: [1, 2]
+
   - name: stg_weather_daily
 
   - name: mart_rides_weekly
@@ -76,5 +77,14 @@ models:
         tests:
           - not_null
       - name: rides_2months_ago
+        tests:
+          - not_null
+
+  - name: mart_rides_daily
+    columns:
+      - name: rides
+        tests:
+          - not_null
+      - name: rides_lastday
         tests:
           - not_null

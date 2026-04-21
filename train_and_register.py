@@ -156,7 +156,7 @@ def train_all_models(dataframes):
         interval_name: {
             "xgboost": fit_xgboost(spec.dataframe, interval_name),
             "GAM": fit_GAM(spec.dataframe, interval_name),
-            "sarima": train_sarima_model(spec.dataframe, interval_name),
+            "sarima": None if interval_name == "day" else train_sarima_model(spec.dataframe, interval_name),
         }
         for interval_name, spec in interval_mapping.items()
     }
@@ -227,6 +227,20 @@ def iter_sarima_configs(period):
             "seasonal_order": (P, D, Q, period),
         }
 
+
+def apply_registry_decision(model_name, model_params):
+    description = make_summary(model_params)
+    mlflow.set_tag("performance_description", str(description))
+
+    decision = registry_decision(model_params=model_params, description=description)
+    mlflow.set_tag("ai_registry_decision", decision["decision"].lower())
+    mlflow.set_tag("ai_registry_reason", decision["reason"])
+
+    if decision["decision"] == "STOP":
+        logger.warning(f"[AI REGISTRY STOP] {model_name}: {decision['reason']}")
+        return None, description, decision
+
+    return True, description, decision
 
 def train_sarima_model(df, interval):
     interval_spec = get_interval_spec(interval)
@@ -317,14 +331,8 @@ def train_sarima_model(df, interval):
             "wmape": best_metrics["wmape"],
         }
 
-        description = make_summary(model_params)
-        mlflow.set_tag("performance_description", str(description))
-
-        decision = registry_decision(model_params=model_params, description=description)
-        mlflow.set_tag("ai_registry_decision", decision["decision"].lower())
-        mlflow.set_tag("ai_registry_reason", decision["reason"])
-        if decision["decision"] == "STOP":
-            logger.warning(f"[AI REGISTRY STOP] {model_name}: {decision['reason']}")
+        approved, description, decision = apply_registry_decision(model_name, model_params)
+        if not approved:
             return None
 
         final_model = fit_sarima_model(
@@ -409,14 +417,8 @@ def fit_xgboost(df, interval):
                         'rmse': val_rmse,
                         'r2': val_r2}
 
-        description = make_summary(model_params)
-        mlflow.set_tag("performance_description", str(description))
-
-        decision = registry_decision(model_params=model_params, description=description)
-        mlflow.set_tag("ai_registry_decision", decision["decision"].lower())
-        mlflow.set_tag("ai_registry_reason", decision["reason"])
-        if decision["decision"] == "STOP":
-            logger.warning(f"[AI REGISTRY STOP] {model_name}: {decision['reason']}")
+        approved, description, decision = apply_registry_decision(model_name, model_params)
+        if not approved:
             return None
 
         mlflow.xgboost.log_model(best_model, artifact_path="model")
@@ -493,14 +495,8 @@ def fit_GAM(df, interval):
                         'rmse': val_rmse,
                         'r2': val_r2}
 
-        description = make_summary(model_params)
-        mlflow.set_tag("performance_description", str(description))
-
-        decision = registry_decision(model_params=model_params, description=description)
-        mlflow.set_tag("ai_registry_decision", decision["decision"].lower())
-        mlflow.set_tag("ai_registry_reason", decision["reason"])
-        if decision["decision"] == "STOP":
-            logger.warning(f"[AI REGISTRY STOP] {model_name}: {decision['reason']}")
+        approved, description, decision = apply_registry_decision(model_name, model_params)
+        if not approved:
             return None
 
         if passed:
@@ -526,11 +522,13 @@ def fit_GAM(df, interval):
 
     return model
 
+df_day = load_dataframe(os.environ["DAY_FILE"])
 df_week = load_dataframe(os.environ["WEEK_FILE"])
 df_month = load_dataframe(os.environ["MONTH_FILE"])
 
 print(">>> STARTUP EVENT TRIGGERED <<<")
 train_all_models({
+    "day": df_day,
     "week": df_week,
     "month": df_month,
 })

@@ -15,7 +15,7 @@ def _clean_training_frame(df: pd.DataFrame) -> pd.DataFrame:
     return df.copy().replace([np.inf, -np.inf], np.nan).dropna()
 
 
-def get_weather_forecast_df() -> pd.DataFrame:
+def get_weekly_weather_forecast_df() -> pd.DataFrame:
     week_file = os.environ["WEEK_FILE"]
     df_week = pd.read_csv(week_file, sep="\t")
     start_date = pd.to_datetime(df_week["year_week"]).min().strftime("%Y-%m-%d")
@@ -29,7 +29,7 @@ def get_weather_forecast_df() -> pd.DataFrame:
 
     daily_parts = []
 
-    if end_ts < today:
+    if end_ts < today - pd.Timedelta(days=1):
         daily_parts.append(
             load_historical_weather(
                 (end_ts + pd.Timedelta(days=1)).strftime("%Y-%m-%d"),
@@ -136,6 +136,23 @@ def _build_weekly_state(last_2row: pd.Series, last_row: pd.Series, add_interval)
     }
 
 
+def _build_daily_state(last_2row: pd.Series, last_row: pd.Series, add_interval) -> Dict[str, Any]:
+    next_day = pd.Timestamp(add_interval(last_row["year_day"]))
+
+    return {
+        "rideable_type": last_row["rideable_type"],
+        "current_year": next_day.year,
+        "current_month": next_day.month,
+        "current_interval": int(next_day.dayofyear),
+        "current_day_of_week": int(next_day.isoweekday()),
+        "current_is_weekend": int(next_day.isoweekday() in (6, 7)),
+        "current_season": _season_from_timestamp(next_day),
+        "rides_2ago": last_2row["rides"],
+        "rides_last": last_row["rides"],
+        "current_year_interval": next_day.strftime("%Y-%m-%d"),
+    }
+
+
 def initialize_forecast_state(df: pd.DataFrame, interval: str, period: int, add_interval) -> Dict[str, Any]:
     # rideable type fixed
 
@@ -144,6 +161,8 @@ def initialize_forecast_state(df: pd.DataFrame, interval: str, period: int, add_
 
     if interval == "week":
         return _build_weekly_state(last_2row=last_2row, last_row=last_row, add_interval=add_interval)
+    if interval == "day":
+        return _build_daily_state(last_2row=last_2row, last_row=last_row, add_interval=add_interval)
 
     current_interval = last_row[interval] + 1
     if current_interval % (period / 4) == 1:
@@ -172,6 +191,20 @@ def initialize_forecast_state(df: pd.DataFrame, interval: str, period: int, add_
 
 
 def generate_next_vector(state: Dict[str, Any], interval: str) -> pd.DataFrame:
+    if interval == "day":
+        return pd.DataFrame({
+            "year_day": [state["current_year_interval"]],
+            "rideable_type": [state["rideable_type"]],
+            "year": [state["current_year"]],
+            "month": [state["current_month"]],
+            "season": [state["current_season"]],
+            "day_of_year": [state["current_interval"]],
+            "day_of_week": [state["current_day_of_week"]],
+            "is_weekend": [state["current_is_weekend"]],
+            "rides_2days_ago": [state["rides_2ago"]],
+            "rides_lastday": [state["rides_last"]],
+        })
+
     return pd.DataFrame({
         f"year_{interval}": [state["current_year_interval"]],
         "rideable_type": [state["rideable_type"]],
@@ -193,6 +226,17 @@ def update_forecast_state(
     next_state = state.copy()
     next_state["rides_2ago"] = state["rides_last"]
     next_state["rides_last"] = predicted_rides
+
+    if interval == "day":
+        next_day = pd.Timestamp(add_interval(state["current_year_interval"]))
+        next_state["current_year_interval"] = next_day.strftime("%Y-%m-%d")
+        next_state["current_year"] = next_day.year
+        next_state["current_month"] = next_day.month
+        next_state["current_interval"] = int(next_day.dayofyear)
+        next_state["current_day_of_week"] = int(next_day.isoweekday())
+        next_state["current_is_weekend"] = int(next_day.isoweekday() in (6, 7))
+        next_state["current_season"] = _season_from_timestamp(next_day)
+        return next_state
 
     if interval == "week":
         next_week_start = pd.Timestamp(add_interval(state["current_year_interval"]))

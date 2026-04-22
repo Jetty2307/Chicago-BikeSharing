@@ -1,6 +1,7 @@
 #backend.py
 
 # from typing import Annotated
+from typing import Optional
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
 # from models import train_all_models, trained_models, training_status
@@ -10,7 +11,7 @@ from model_loader import load_xgb, load_gam, load_sarima, training_status
 from sarima_service import build_sarima_series, forecast_with_fitted_sarima
 from feature_storage import (
     generate_next_vector,
-    get_weather_forecast_df,
+    get_weekly_weather_forecast_df,
     initialize_forecast_state,
     update_forecast_state,
 )
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 port = int(os.getenv("APP_PORT", 8003))
 
+df_day = load_dataframe(os.environ["DAY_FILE"])
 df_week = load_dataframe(os.environ["WEEK_FILE"])
 df_month = load_dataframe(os.environ["MONTH_FILE"])
 
@@ -39,6 +41,7 @@ class ForecastRequest(BaseModel):
     interval: str # weekly or monthly
     include_retro: bool # whether to include retro forecast
     lookback: int # how long back to consider for retro forecast
+    base_date: Optional[str] = None # used for daily pseudo-forecast: predicts base_date + 1
 
 @app.get("/")
 def get_training_status():
@@ -48,6 +51,11 @@ def get_training_status():
 def load_models():
     global MODELS
     MODELS = {
+        'day': {
+            "xgboost": load_xgb("day")[0],
+            "GAM": load_gam("day")[0],
+            "sarima": None,
+        },
         'week': {
             "xgboost": load_xgb("week")[0],
             "GAM": load_gam("week")[0],
@@ -62,6 +70,11 @@ def load_models():
 
     global DESCRIPTIONS
     DESCRIPTIONS = {
+        'day': {
+            "xgboost": load_xgb("day")[1],
+            "GAM": load_gam("day")[1],
+            "sarima": None,
+        },
         'week': {
             "xgboost": load_xgb("week")[1],
             "GAM": load_gam("week")[1],
@@ -74,7 +87,7 @@ def load_models():
         }
     }
     global df_forecast_weekly
-    df_forecast_weekly = get_weather_forecast_df()
+    df_forecast_weekly = get_weekly_weather_forecast_df()
 
 '''@app.on_event("startup")
 def startup_event():
@@ -134,6 +147,7 @@ def make_prediction(timeframe, steps, regr_model, rideable_type, model_key):
 
 
 interval_mapping = build_interval_mapping({
+    "day": df_day,
     "week": df_week,
     "month": df_month,
 })
@@ -161,6 +175,64 @@ def to_final_pd(d1, path_nonindexed, description):
         "historical": path_nonindexed.to_dict(orient='records'),
         "forecast": forecast.to_dict(orient='records'),
         "description": clean_description # Convert forecast to list for JSON serialization
+    }
+
+def forecast_rides_daily_pseudo(request: ForecastRequest, model, timeframe, description, model_key):
+    if not request.base_date:
+        raise HTTPException(status_code=400, detail="base_date is required for daily pseudo-forecast")
+    if request.steps != 1:
+        raise HTTPException(status_code=400, detail="Daily pseudo-forecast supports only steps=1")
+
+    try:
+        base_day = pd.Timestamp(request.base_date).strftime(timeframe.date_format)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="base_date must use YYYY-MM-DD format")
+
+    target_day = pd.Timestamp(timeframe.add_interval(base_day)).strftime(timeframe.date_format)
+    base_rows = timeframe.dataframe[timeframe.dataframe["year_day"] == base_day]
+    target_rows = timeframe.dataframe[timeframe.dataframe["year_day"] == target_day]
+
+    if base_rows.empty:
+        raise HTTPException(status_code=400, detail=f"base_date not found in daily data: {base_day}")
+    if target_rows.empty:
+        raise HTTPException(status_code=400, detail=f"target date not found in daily data: {target_day}")
+
+    forecast_parts = []
+    for rideable_type in sorted(base_rows["rideable_type"].unique()):
+        base_row = base_rows[base_rows["rideable_type"] == rideable_type].iloc[-1]
+        target_for_type = target_rows[target_rows["rideable_type"] == rideable_type]
+        if target_for_type.empty:
+            raise HTTPException(
+                status_code=400,
+                detail=f"target date {target_day} has no row for rideable_type={rideable_type}",
+            )
+
+        input_features = target_for_type.iloc[[0]].copy()
+        input_features["rides_lastday"] = base_row["rides"]
+        feature_frame = input_features[timeframe.feature_columns(model_key)]
+        model_input = feature_frame.to_numpy() if model_key == "GAM" else feature_frame
+        predicted_rides = model.predict(model_input)[0]
+
+        forecast_parts.append({
+            "rideable_type": rideable_type,
+            "rides": predicted_rides,
+        })
+
+    predicted_total = int(round(sum(part["rides"] for part in forecast_parts)))
+    actual_total = int(target_rows["rides"].sum())
+    historical = (
+        timeframe.dataframe
+        .groupby("year_day")["rides"]
+        .sum()
+        .reset_index()
+    )
+
+    clean_description = description if description is not None else ""
+    return {
+        "historical": historical.to_dict(orient="records"),
+        "forecast": [{"year_day": target_day, "rides": predicted_total}],
+        "actual": [{"year_day": target_day, "rides": actual_total}],
+        "description": clean_description,
     }
 
 def forecast_rides_regressive(request: ForecastRequest, model, timeframe, description, model_key):
@@ -206,6 +278,9 @@ def _forecast_with_trained_model(request: ForecastRequest, model_key: str):
     except:
         description = "No performance description available"
 
+    if request.interval == "day":
+        return forecast_rides_daily_pseudo(request, model, timeframe, description, model_key)
+
     return forecast_rides_regressive(request, model, timeframe, description, model_key)
 
 
@@ -220,6 +295,8 @@ def forecast_rides_sarima(request: ForecastRequest):
 
     try:
         model = MODELS[request.interval]["sarima"]
+        if model is None:
+            raise HTTPException(status_code=400, detail=f"SARIMA is not available for interval: {request.interval}")
         description = DESCRIPTIONS[request.interval]["sarima"]
         historical, _ = build_sarima_series(
             dataframe=timeframe.dataframe,
@@ -227,6 +304,8 @@ def forecast_rides_sarima(request: ForecastRequest):
             timeframe=timeframe,
         )
         forecast = forecast_with_fitted_sarima(model, steps=request.steps)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error generating forecast: {e}")
         raise HTTPException(status_code=500, detail="Error generating forecast.")

@@ -16,7 +16,7 @@ from pygam import GAM, s, f, LogisticGAM, PoissonGAM
 from dataframes_loader import load_dataframe
 from intervals import get_interval_spec, build_interval_mapping
 from ai_agent import make_summary, registry_decision
-from feature_storage import fetch_features_xgboost, fetch_features_gam
+from features_inference import fetch_features_xgboost, fetch_features_gam
 from sarima_service import build_sarima_series, fit_sarima_model, forecast_with_fitted_sarima
 import os
 import joblib

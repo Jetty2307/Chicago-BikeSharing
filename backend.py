@@ -9,7 +9,7 @@ from dataframes_loader import load_dataframe
 from intervals import build_interval_mapping
 from model_loader import load_xgb, load_gam, load_sarima, training_status
 from sarima_service import build_sarima_series, forecast_with_fitted_sarima
-from feature_storage import (
+from features_inference import (
     generate_next_vector,
     get_weekly_weather_forecast_df,
     initialize_forecast_state,
@@ -41,7 +41,7 @@ class ForecastRequest(BaseModel):
     interval: str # weekly or monthly
     include_retro: bool # whether to include retro forecast
     lookback: int # how long back to consider for retro forecast
-    base_date: Optional[str] = None # used for daily pseudo-forecast: predicts base_date + 1
+    forecast_date: Optional[str] = None # used for daily pseudo-forecast
 
 @app.get("/")
 def get_training_status():
@@ -152,6 +152,23 @@ interval_mapping = build_interval_mapping({
     "month": df_month,
 })
 
+
+def get_daily_forecast_dates():
+    timeframe = interval_mapping["day"]
+    unique_days = sorted(
+        pd.to_datetime(timeframe.dataframe["year_day"]).dt.strftime(timeframe.date_format).unique()
+    )
+    if not unique_days:
+        return []
+
+    window_size = min(timeframe.validation_offset, len(unique_days))
+    candidate_days = unique_days[-window_size:]
+    available_set = set(unique_days)
+    return [
+        day for day in candidate_days
+        if (pd.Timestamp(day) - timeframe.offset).strftime(timeframe.date_format) in available_set
+    ]
+
 def merge_columns(forecast_classic, forecast_electric, interval):
 
     forecast_full = pd.DataFrame()
@@ -166,6 +183,11 @@ def merge_columns(forecast_classic, forecast_electric, interval):
 
     return forecast_full
 
+
+@app.get("/daily_forecast_dates")
+def daily_forecast_dates():
+    return {"dates": get_daily_forecast_dates()}
+
 def to_final_pd(d1, path_nonindexed, description):
 
     forecast = pd.DataFrame(data=d1)
@@ -178,24 +200,27 @@ def to_final_pd(d1, path_nonindexed, description):
     }
 
 def forecast_rides_daily_pseudo(request: ForecastRequest, model, timeframe, description, model_key):
-    if not request.base_date:
-        raise HTTPException(status_code=400, detail="base_date is required for daily pseudo-forecast")
+    if not request.forecast_date:
+        raise HTTPException(status_code=400, detail="forecast_date is required for daily pseudo-forecast")
     if request.steps != 1:
         raise HTTPException(status_code=400, detail="Daily pseudo-forecast supports only steps=1")
 
     try:
-        base_day = pd.Timestamp(request.base_date).strftime(timeframe.date_format)
+        target_day = pd.Timestamp(request.forecast_date).strftime(timeframe.date_format)
     except ValueError:
-        raise HTTPException(status_code=400, detail="base_date must use YYYY-MM-DD format")
+        raise HTTPException(status_code=400, detail="forecast_date must use YYYY-MM-DD format")
 
-    target_day = pd.Timestamp(timeframe.add_interval(base_day)).strftime(timeframe.date_format)
+    if target_day not in get_daily_forecast_dates():
+        raise HTTPException(status_code=400, detail=f"forecast_date is outside the allowed pseudo-forecast window: {target_day}")
+
+    base_day = (pd.Timestamp(target_day) - timeframe.offset).strftime(timeframe.date_format)
     base_rows = timeframe.dataframe[timeframe.dataframe["year_day"] == base_day]
     target_rows = timeframe.dataframe[timeframe.dataframe["year_day"] == target_day]
 
     if base_rows.empty:
-        raise HTTPException(status_code=400, detail=f"base_date not found in daily data: {base_day}")
+        raise HTTPException(status_code=400, detail=f"previous day not found in daily data: {base_day}")
     if target_rows.empty:
-        raise HTTPException(status_code=400, detail=f"target date not found in daily data: {target_day}")
+        raise HTTPException(status_code=400, detail=f"forecast date not found in daily data: {target_day}")
 
     forecast_parts = []
     for rideable_type in sorted(base_rows["rideable_type"].unique()):

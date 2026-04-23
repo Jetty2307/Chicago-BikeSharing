@@ -38,7 +38,7 @@ SELECT
     total_rain,
     total_snow
 FROM {MART_SCHEMA}.mart_rides_daily
-ORDER BY date, rideable_type
+ORDER BY year_day, rideable_type
 """
 
 WEEK_QUERY = f"""

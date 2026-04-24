@@ -213,18 +213,14 @@ def forecast_rides_daily_pseudo(request: ForecastRequest, model, timeframe, desc
     if target_day not in get_daily_forecast_dates():
         raise HTTPException(status_code=400, detail=f"forecast_date is outside the allowed pseudo-forecast window: {target_day}")
 
-    base_day = (pd.Timestamp(target_day) - timeframe.offset).strftime(timeframe.date_format)
-    base_rows = timeframe.dataframe[timeframe.dataframe["year_day"] == base_day]
     target_rows = timeframe.dataframe[timeframe.dataframe["year_day"] == target_day]
 
-    if base_rows.empty:
-        raise HTTPException(status_code=400, detail=f"previous day not found in daily data: {base_day}")
     if target_rows.empty:
         raise HTTPException(status_code=400, detail=f"forecast date not found in daily data: {target_day}")
 
     forecast_parts = []
-    for rideable_type in sorted(base_rows["rideable_type"].unique()):
-        base_row = base_rows[base_rows["rideable_type"] == rideable_type].iloc[-1]
+    for rideable_type in sorted(target_rows["rideable_type"].unique()):
+
         target_for_type = target_rows[target_rows["rideable_type"] == rideable_type]
         if target_for_type.empty:
             raise HTTPException(
@@ -233,7 +229,7 @@ def forecast_rides_daily_pseudo(request: ForecastRequest, model, timeframe, desc
             )
 
         input_features = target_for_type.iloc[[0]].copy()
-        input_features["rides_lastday"] = base_row["rides"]
+
         feature_frame = input_features[timeframe.feature_columns(model_key)]
         model_input = feature_frame.to_numpy() if model_key == "GAM" else feature_frame
         predicted_rides = model.predict(model_input)[0]

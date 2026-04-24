@@ -147,7 +147,7 @@ def _build_daily_state(last_2row: pd.Series, last_row: pd.Series, add_interval) 
         "current_day_of_week": int(next_day.isoweekday()),
         "current_is_weekend": int(next_day.isoweekday() in (6, 7)),
         "current_season": _season_from_timestamp(next_day),
-        "rides_2ago": last_2row["rides"],
+        # "rides_2ago": last_2row["rides"],
         "rides_last": last_row["rides"],
         "current_year_interval": next_day.strftime("%Y-%m-%d"),
     }
@@ -177,8 +177,6 @@ def initialize_forecast_state(df: pd.DataFrame, interval: str, period: int, add_
     else:
         current_year = last_row["year"]
 
-
-
     return {
         "rideable_type": df["rideable_type"].iloc[0],
         "current_year": current_year,
@@ -193,7 +191,7 @@ def initialize_forecast_state(df: pd.DataFrame, interval: str, period: int, add_
 def generate_next_vector(state: Dict[str, Any], interval: str) -> pd.DataFrame:
     if interval == "day":
         return pd.DataFrame({
-            "year_day": [state["current_year_interval"]],
+            f"year_{interval}": [state["current_year_interval"]],
             "rideable_type": [state["rideable_type"]],
             "year": [state["current_year"]],
             "month": [state["current_month"]],
@@ -201,7 +199,7 @@ def generate_next_vector(state: Dict[str, Any], interval: str) -> pd.DataFrame:
             "day_of_year": [state["current_interval"]],
             "day_of_week": [state["current_day_of_week"]],
             "is_weekend": [state["current_is_weekend"]],
-            "rides_2days_ago": [state["rides_2ago"]],
+            # "rides_2days_ago": [state["rides_2ago"]],
             "rides_lastday": [state["rides_last"]],
         })
 

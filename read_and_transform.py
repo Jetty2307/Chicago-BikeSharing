@@ -36,7 +36,8 @@ SELECT
     rides_lastday,
     temp,
     total_rain,
-    total_snow
+    total_snow,
+    is_snow
 FROM {MART_SCHEMA}.mart_rides_daily
 ORDER BY year_day, rideable_type
 """

@@ -18,9 +18,9 @@ MODEL_FEATURES = {
     },
     "day": {
         "xgboost": ["rideable_type", "year", "month", "season", "day_of_year", "day_of_week", "is_weekend", "temp",
-                    "total_rain", "total_snow"],
-        "GAM": ["rideable_type", "year", "season", "day_of_year", "day_of_week", "is_weekend",
-                "temp", "total_rain", "total_snow"],
+                    "rides_lastday", "total_rain", "total_snow"],
+        "GAM": ["rideable_type", "year", "season", "day_of_year", "day_of_week",
+                "temp", "total_rain", "is_snow"],
     },
 }
 
@@ -36,7 +36,7 @@ GAM_TERM_BUILDERS: Dict[str, Callable[[int], Any]] = {
     "temp": lambda idx: s(idx),
     "avg_temp": lambda idx: s(idx),
     "total_rain": lambda idx: s(idx),
-    "total_snow": lambda idx: s(idx),
+    "is_snow": lambda idx: f(idx),
 }
 
 

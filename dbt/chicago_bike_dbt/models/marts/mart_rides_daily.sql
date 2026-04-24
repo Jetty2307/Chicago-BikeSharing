@@ -45,9 +45,11 @@ select
     rides_lastday,
     temp,
     total_rain,
-    total_snow
+    total_snow,
+    case when total_snow > 0 then 1 else 0 end as is_snow
 from pre
 left join weather_day using (date)
 where rides_lastday is not null
+and date >= '2021-01-01'
 order by year_day, rideable_type
 

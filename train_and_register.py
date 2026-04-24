@@ -529,7 +529,7 @@ df_month = load_dataframe(os.environ["MONTH_FILE"])
 print(">>> STARTUP EVENT TRIGGERED <<<")
 train_all_models({
     "day": df_day,
-    "week": df_week,
-    "month": df_month,
+    #"week": df_week,
+    #"month": df_month,
 })
 print(">>> TRAINING COMPLETED<<<")

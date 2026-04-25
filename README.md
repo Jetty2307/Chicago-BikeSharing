@@ -26,28 +26,28 @@ From the analytical point of view, three different models are used for time seri
 Project structure and data pipeline:
 
 1. Data extraction, loading and transformation (ELT)
-   This step is orchestrated in Airflow and run on a monthly basis, as the data from Divvy service is updated every month. It    goes as follows:
+   This step is orchestrated in Airflow and run on a monthly basis, as the data from Divvy service is updated every month. It goes as follows:
 
      - new data uploaded to the local host from the web with REST APIs requests
      - the new data from directories is inserted to the local PostgreSQL database
-     - aggregated tables are formed for weekly and monthly bike usage depending on their type (electric or classic) with SQL queries in dbt
+     - aggregated tables are formed for daily, weekly and monthly bike usage depending on their type (electric or classic) with SQL queries in dbt
      - additionally the historical weather data are downloaded from [open-meteo](https://open-meteo.com) to form weather features (temperature, rain, snow), and they are also stored in the DB,
-     and joined with time features (year, season, day/week/month/ lags) for the rides with dbt.
+     and joined with time features (year, season, day/week/month/ lags) for the rides with dbt. Weather features are used only for daily and weekly forecasts.
     
-2. Tests for ELT procedures and resulting output
+2. Tests for ELT procedures and resulting output.
  
 3. Features engineering and training the models with their evaluation, registration and feature importance control
    - extracting features from the dataframes and their transformation if needed
-   - training and validation of SARIMA, XGBoost and PyGAM models for weekly and monthly predictions with a new data point(s) 
+   - training and validation of SARIMA, XGBoost and PyGAM models for daily (without SARIMA), weekly and monthly predictions with a new data point(s). 
    - registration of the models with MLflow if on validation their performance does not deteriorate
-   - evaluating the feature importance with SHAP values (XGBoost) and partial dependence (GAM) and saving as model artefacts in MLflow registry
+   - evaluating the feature importance with SHAP values (XGBoost) and partial dependence (GAM) and saving as model artefacts in MLflow registry.
   
-4. AI description of the current model performance with Llama 3 (or Deepseek if the description of Llama 3 is unsatisfactory) and giving an ability to AI to prevent a new trained model from registry if it evaluates it as bad.
+4. AI calls for description of the current model performance with Llama 3 or Deepseek if the description of Llama 3 is unsatisfactory and providing an ability to AI to prevent a new trained model from registry if it evaluates it as not satisfactory.
      
 5. App embedding:
-   - backend (FastAPI + Uvicorn) for taking the input for models inference and fetching the models output
-   - frontend (Streamlit) for the user's selection of the model and predictions parameters and visualization of the result
+   - backend (FastAPI + Uvicorn) for taking the input for models inference and giving back the models output
+   - frontend (Streamlit) for the user's selection of the model and prediction horizon and for visualization of the result
      
-     The user can select a certain model, and the predictions for upcoming number of weeks or months will be shown.
+     The user can select a certain model, and the predictions for upcoming number of weeks or months will be shown. The daily forecast gives a user an oppotrunity to create a usage forecast for the next day.
      
 6. App containerization with Docker

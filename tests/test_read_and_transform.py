@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pandas as pd
 import pytest
 
@@ -10,14 +8,55 @@ except Exception as e:
     pytest.skip(f"Cannot import read_and_transform: {e}", allow_module_level=True)
 
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data"
-
-
 @pytest.fixture(scope="module")
 def sample_frames():
-    df_day = pd.read_csv(DATA_DIR / "df_day_test_sql.tsv", sep="\t")
-    df_week = pd.read_csv(DATA_DIR / "df_week_test_sql.tsv", sep="\t")
-    df_month = pd.read_csv(DATA_DIR / "df_month_test_sql.tsv", sep="\t")
+    df_day = pd.DataFrame(
+        {
+            "year_day": ["2021-01-02", "2021-01-02", "2021-01-03", "2021-01-03"],
+            "rideable_type": [1, 2, 1, 2],
+            "year": [2021, 2021, 2021, 2021],
+            "month": [1, 1, 1, 1],
+            "season": [0, 0, 0, 0],
+            "day_of_year": [2, 2, 3, 3],
+            "day_of_week": [6, 6, 7, 7],
+            "is_weekend": [1, 1, 1, 1],
+            "rides": [120, 95, 140, 110],
+            "rides_lastday": [100, 90, 120, 95],
+            "temp": [-2.5, -2.5, 0.0, 0.0],
+            "total_rain": [0.0, 0.0, 1.2, 1.2],
+            "total_snow": [0.5, 0.5, 0.0, 0.0],
+            "is_snow": [1, 1, 0, 0],
+        }
+    )
+    df_week = pd.DataFrame(
+        {
+            "year_week": ["2021-01-04", "2021-01-04", "2021-01-11", "2021-01-11"],
+            "rideable_type": [1, 2, 1, 2],
+            "year": [2021, 2021, 2021, 2021],
+            "week": [1, 1, 2, 2],
+            "season": [0, 0, 0, 0],
+            "rides": [800, 650, 900, 700],
+            "rides_lastweek": [750, 610, 800, 650],
+            "rides_2weeks_ago": [700, 580, 750, 610],
+            "max_temp": [2.0, 2.0, 5.0, 5.0],
+            "avg_temp": [-1.0, -1.0, 1.5, 1.5],
+            "min_temp": [-5.0, -5.0, -2.0, -2.0],
+            "total_rain": [4.2, 4.2, 2.8, 2.8],
+            "total_snow": [1.5, 1.5, 0.0, 0.0],
+        }
+    )
+    df_month = pd.DataFrame(
+        {
+            "year_month": ["2021-01", "2021-01", "2021-02", "2021-02"],
+            "rideable_type": [1, 2, 1, 2],
+            "year": [2021, 2021, 2021, 2021],
+            "month": [1, 1, 2, 2],
+            "season": [0, 0, 0, 0],
+            "rides": [3200, 2800, 4100, 3600],
+            "rides_lastmonth": [3000, 2600, 3200, 2800],
+            "rides_2months_ago": [2800, 2400, 3000, 2600],
+        }
+    )
     return df_day, df_week, df_month
 
 

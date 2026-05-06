@@ -4,7 +4,7 @@
 from typing import Optional
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
-import great_expectations as ge
+import great_expectations as gx
 # from models import train_all_models, trained_models, training_status
 from dataframes_loader import load_dataframe
 from intervals import build_interval_mapping
@@ -32,6 +32,12 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 port = int(os.getenv("APP_PORT", 8003))
+gx_context = gx.get_context()
+
+try:
+    gx_pandas_source = gx_context.data_sources.pandas_default
+except AttributeError:
+    gx_pandas_source = gx_context.data_sources.add_pandas("pandas_default")
 
 df_day = load_dataframe(os.environ["DAY_FILE"])
 df_week = load_dataframe(os.environ["WEEK_FILE"])
@@ -186,14 +192,18 @@ def merge_columns(forecast_classic, forecast_electric, interval):
 
 
 def validate_inference_forecast(df: pd.DataFrame, context: str) -> None:
-    validator = ge.from_pandas(df)
+    batch = gx_pandas_source.read_dataframe(df)
 
     checks = [
-        validator.expect_column_values_to_not_be_null("rides"),
-        validator.expect_column_values_to_be_between(
-            "rides",
-            min_value=0,
-            strict_min=True,
+        batch.validate(
+            gx.expectations.ExpectColumnValuesToNotBeNull(column="rides")
+        ),
+        batch.validate(
+            gx.expectations.ExpectColumnValuesToBeBetween(
+                column="rides",
+                min_value=0,
+                strict_min=True,
+            )
         ),
     ]
 
@@ -201,10 +211,10 @@ def validate_inference_forecast(df: pd.DataFrame, context: str) -> None:
     if failed_checks:
         messages = []
         for check in failed_checks:
-            result = check.result or {}
+            result = getattr(check, "result", {}) or {}
             unexpected = result.get("unexpected_list", [])
             messages.append(
-                f"{check.expectation_config.expectation_type}: unexpected={unexpected[:5]}"
+                f"{check.expectation_config.type}: unexpected={unexpected[:5]}"
             )
         raise HTTPException(
             status_code=500,

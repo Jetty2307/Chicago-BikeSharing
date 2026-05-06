@@ -4,6 +4,7 @@
 from typing import Optional
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
+import great_expectations as ge
 # from models import train_all_models, trained_models, training_status
 from dataframes_loader import load_dataframe
 from intervals import build_interval_mapping
@@ -184,6 +185,33 @@ def merge_columns(forecast_classic, forecast_electric, interval):
     return forecast_full
 
 
+def validate_inference_forecast(df: pd.DataFrame, context: str) -> None:
+    validator = ge.from_pandas(df)
+
+    checks = [
+        validator.expect_column_values_to_not_be_null("rides"),
+        validator.expect_column_values_to_be_between(
+            "rides",
+            min_value=0,
+            strict_min=True,
+        ),
+    ]
+
+    failed_checks = [check for check in checks if not check.success]
+    if failed_checks:
+        messages = []
+        for check in failed_checks:
+            result = check.result or {}
+            unexpected = result.get("unexpected_list", [])
+            messages.append(
+                f"{check.expectation_config.expectation_type}: unexpected={unexpected[:5]}"
+            )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Inference validation failed for {context}: {'; '.join(messages)}",
+        )
+
+
 @app.get("/daily_forecast_dates")
 def daily_forecast_dates():
     return {"dates": get_daily_forecast_dates()}
@@ -191,6 +219,7 @@ def daily_forecast_dates():
 def to_final_pd(d1, path_nonindexed, description):
 
     forecast = pd.DataFrame(data=d1)
+    validate_inference_forecast(forecast, context="forecast payload")
     clean_description = description if description is not None else ""
 
     return {
@@ -247,11 +276,13 @@ def forecast_rides_daily_pseudo(request: ForecastRequest, model, timeframe, desc
         .sum()
         .reset_index()
     )
+    forecast = pd.DataFrame([{"year_day": target_day, "rides": predicted_total}])
+    validate_inference_forecast(forecast, context="daily pseudo-forecast")
 
     clean_description = description if description is not None else ""
     return {
         "historical": historical.to_dict(orient="records"),
-        "forecast": [{"year_day": target_day, "rides": predicted_total}],
+        "forecast": forecast.to_dict(orient="records"),
         "actual": [{"year_day": target_day, "rides": actual_total}],
         "description": clean_description,
     }

@@ -38,16 +38,16 @@ Project structure and data pipeline:
  
 3. Features engineering and training the models with their evaluation, registration and feature importance control
    - extracting features from the dataframes and their transformation if needed
-   - training and validation of SARIMA, XGBoost and PyGAM models for daily (without SARIMA), weekly and monthly predictions with a new data point(s). 
+   - training and validation of SARIMA, XGBoost and PyGAM models for daily (without SARIMA), weekly and monthly predictions with a new data point(s) 
    - registration of the models with MLflow if on validation their performance does not deteriorate
-   - evaluating the feature importance with SHAP values (XGBoost) and partial dependence (GAM) and saving as model artefacts in MLflow registry.
+   - evaluating the feature importance with SHAP values (XGBoost) and partial dependence (GAM) and saving as model artefacts in MLflow registry
   
-4. AI calls for description of the current model performance with Llama 3 or Deepseek if the description of Llama 3 is unsatisfactory and providing an ability to AI to prevent a new trained model from registry if it evaluates it as not satisfactory.
+4. AI calls for description of the current model performance with Llama 3 or Deepseek if the description of Llama 3 is unsatisfactory and providing an ability to AI to prevent a new trained model from registry if it considers the model to be not satisfactory.
      
 5. App embedding:
    - backend (FastAPI + Uvicorn) for taking the input for models inference and giving back the models output
    - frontend (Streamlit) for the user's selection of the model and prediction horizon and for visualization of the result
      
-     The user can select a certain model, and the predictions for upcoming number of weeks or months will be shown. The daily forecast gives a user an oppotrunity to create a usage forecast for the next day.
+     The user can select a certain model, and the predictions for upcoming number of weeks or months will be shown. The daily forecast gives a user an oppotrunity to create a rides forecast for the next day.
      
 6. App containerization with Docker

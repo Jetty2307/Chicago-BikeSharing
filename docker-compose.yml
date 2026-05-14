@@ -13,7 +13,6 @@ services:
       - app-network
     volumes:
       - .:/Users/victor/Desktop/DS/Chicago-BikeSharing
-    command: ["python", "backend.py"]
 
   streamlit:
       build:

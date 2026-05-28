@@ -42,6 +42,7 @@ sources:
             tests:
               - not_null
 
+
 models:
   - name: stg_divvy_rides
     columns:
@@ -53,8 +54,51 @@ models:
           - not_null
           - accepted_values:
               values: [1, 2]
+      - name: year
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+      - name: season
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "between 0 AND 3"
+      - name: month
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "between 1 AND 12"
+      - name: day_of_year
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "between 1 AND 366"
+      - name: day_of_week
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "between 1 AND 7"
+
+
 
   - name: stg_weather_daily
+    columns:
+      - name: year
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+      - name: month
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "between 1 AND 12"
+      - name: week
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "between 1 AND 53"
 
   - name: mart_rides_weekly
     columns:

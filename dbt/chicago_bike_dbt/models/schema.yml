@@ -105,30 +105,46 @@ models:
       - name: rides
         tests:
           - not_null
+          - dbt_utils.expression_is_true:
+                expression: ">= 0"
       - name: rides_lastweek
         tests:
           - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
       - name: rides_2weeks_ago
         tests:
           - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
 
   - name: mart_rides_monthly
     columns:
       - name: rides
         tests:
           - not_null
+          - dbt_utils.expression_is_true:
+                expression: ">= 0"
       - name: rides_lastmonth
         tests:
           - not_null
+          - dbt_utils.expression_is_true:
+                expression: ">= 0"
       - name: rides_2months_ago
         tests:
           - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
 
   - name: mart_rides_daily
     columns:
       - name: rides
         tests:
           - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
       - name: rides_lastday
         tests:
           - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"

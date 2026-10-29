@@ -122,3 +122,21 @@ def test_export_tsv_writes_tab_separated_file(sample_frames, tmp_path):
 
     exported = pd.read_csv(target, sep="\t")
     pd.testing.assert_frame_equal(exported, df_day.head(3))
+
+
+@pytest.mark.parametrize('stale_index', [0, 1, 2, None])
+def test_freshness_rejects_stale_marts(stale_index):
+    frames = [
+        pd.DataFrame({'rideable_type': [1, 2], column: [latest, latest]})
+        for column, latest in [('year_day', '2026-09-30'),
+                               ('year_week', '2026-09-28'),
+                               ('year_month', '2026-09')]
+    ]
+    source = pd.DataFrame({'rideable_type': [1, 2], 'latest_day': ['2026-09-30'] * 2})
+    if stale_index is None:
+        read_and_transform.validate_freshness(frames, source)
+    else:
+        column = frames[stale_index].columns[1]
+        frames[stale_index].loc[1, column] = '2026-01-01'
+        with pytest.raises(ValueError, match='Stale'):
+            read_and_transform.validate_freshness(frames, source)

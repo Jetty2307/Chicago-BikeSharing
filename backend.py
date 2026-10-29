@@ -9,7 +9,7 @@ import great_expectations as gx
 from dataframes_loader import load_dataframe
 from intervals import build_interval_mapping
 from model_loader import load_xgb, load_gam, load_sarima, training_status
-from sarima_service import build_sarima_series, forecast_with_fitted_sarima
+from sarima_service import build_sarima_series, forecast_with_fitted_sarima, update_sarima_observations
 from features_inference import (
     generate_next_vector,
     get_weekly_weather_forecast_df,
@@ -360,11 +360,13 @@ def forecast_rides_sarima(request: ForecastRequest):
         if model is None:
             raise HTTPException(status_code=400, detail=f"SARIMA is not available for interval: {request.interval}")
         description = DESCRIPTIONS[request.interval]["sarima"]
-        historical, _ = build_sarima_series(
+        historical, series = build_sarima_series(
             dataframe=timeframe.dataframe,
             interval=request.interval,
             timeframe=timeframe,
         )
+        model = update_sarima_observations(model, series)
+        MODELS[request.interval]["sarima"] = model
         forecast = forecast_with_fitted_sarima(model, steps=request.steps)
     except HTTPException:
         raise

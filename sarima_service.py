@@ -63,6 +63,21 @@ def forecast_with_fitted_sarima(results, steps: int) -> pd.Series:
     return np.expm1(forecast_log).clip(lower=0)
 
 
+def update_sarima_observations(results, series: pd.Series):
+    """Filter current history with the registered coefficients before forecasting."""
+    if series.empty or not isinstance(series.index, pd.DatetimeIndex):
+        raise ValueError("SARIMA requires a nonempty series with a date index")
+
+    observations = np.log1p(series)
+    original = results.model.data.orig_endog
+    if isinstance(original, pd.Series) and original.equals(observations):
+        return results
+
+    # Updating the full history also handles corrections and changed start dates.
+    # apply() updates the filtered state without estimating new coefficients.
+    return results.apply(observations, refit=False)
+
+
 def fit_and_forecast_sarima(
     dataframe: pd.DataFrame,
     interval: str,

@@ -80,12 +80,41 @@ def fetch_df(query: str, engine=engine) -> pd.DataFrame:
         return pd.read_sql(query, conn)
 
 
-def build_interval_table() -> Tuple[pd.DataFrame, pd.DataFrame]:
+def build_interval_table() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     df_day = fetch_df(DAY_QUERY)
     df_week = fetch_df(WEEK_QUERY)
     df_month = fetch_df(MONTH_QUERY)
 
     return df_day, df_week, df_month
+
+
+def validate_freshness(frames, latest_rides: pd.DataFrame) -> None:
+    """Reject stale marts before overwriting any exported files."""
+    if latest_rides.empty:
+        raise ValueError("No supported rides found in the source table")
+    for row in latest_rides.itertuples(index=False):
+        latest = pd.Timestamp(row.latest_day)
+        expected = (latest.normalize(), latest.to_period("W").start_time,
+                    latest.to_period("M").start_time)
+        for df, column, period, label in zip(
+            frames, ("year_day", "year_week", "year_month"), expected,
+            ("daily", "weekly", "monthly"),
+        ):
+            actual = pd.to_datetime(df.loc[df["rideable_type"] == row.rideable_type, column]).max()
+            if pd.isna(actual) or actual != period:
+                raise ValueError(
+                    f"Stale {label} mart for rideable_type={row.rideable_type}: "
+                    f"latest={actual}, expected={period}. Run dbt run and dbt test before export."
+                )
+
+
+LATEST_RIDES_QUERY = f"""
+SELECT CASE rideable_type WHEN 'classic_bike' THEN 1 ELSE 2 END AS rideable_type,
+       max(started_at)::date AS latest_day
+FROM {os.getenv('DBT_RAW_SCHEMA', 'public')}.merged
+WHERE rideable_type IN ('classic_bike', 'electric_bike')
+GROUP BY rideable_type
+"""
 
 
 def export_tsv(df: pd.DataFrame, path: str) -> None:
@@ -94,6 +123,7 @@ def export_tsv(df: pd.DataFrame, path: str) -> None:
 
 if __name__ == "__main__":
     df_day, df_week, df_month = build_interval_table()
+    validate_freshness((df_day, df_week, df_month), fetch_df(LATEST_RIDES_QUERY))
 
     export_tsv(df_day, os.environ["DAY_FILE"])
     export_tsv(df_week, os.environ["WEEK_FILE"])

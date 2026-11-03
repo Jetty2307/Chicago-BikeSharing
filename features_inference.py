@@ -4,7 +4,7 @@ import os
 # from typing import Any, Tuple
 from typing import Any, Tuple, List, Dict
 from dotenv import load_dotenv
-from intervals import MODEL_FEATURES
+from intervals import MODEL_FEATURES, GAM_TYPE_INDICATORS
 from weather_api import load_forecast_weather, load_historical_weather
 
 load_dotenv()
@@ -13,6 +13,27 @@ today = pd.Timestamp.today(tz="America/Chicago").tz_localize(None).normalize()
 
 def _clean_training_frame(df: pd.DataFrame) -> pd.DataFrame:
     return df.copy().replace([np.inf, -np.inf], np.nan).dropna()
+
+
+def _aggregate_complete_weather_weeks(daily: pd.DataFrame) -> pd.DataFrame:
+    daily = daily.copy()
+    daily["weather_date"] = pd.to_datetime(daily["weather_date"]).dt.normalize()
+    daily = daily.drop_duplicates("weather_date", keep="last").dropna(
+        subset=["temperature_2m_mean", "rain_sum", "snowfall_sum"]
+    )
+    daily["year_week"] = (
+        daily["weather_date"]
+        - pd.to_timedelta(daily["weather_date"].dt.weekday, unit="D")
+    ).dt.strftime("%Y-%m-%d")
+    # A partial final week must use seasonal averages for the entire week.
+    complete = daily.groupby("year_week")["weather_date"].transform("nunique") == 7
+    return daily.loc[complete].groupby("year_week", as_index=False).agg(
+        max_temp=("temperature_2m_mean", "max"),
+        avg_temp=("temperature_2m_mean", "mean"),
+        min_temp=("temperature_2m_mean", "min"),
+        total_rain=("rain_sum", "sum"),
+        total_snow=("snowfall_sum", "sum"),
+    )
 
 
 def get_weekly_weather_forecast_df() -> pd.DataFrame:
@@ -37,43 +58,11 @@ def get_weekly_weather_forecast_df() -> pd.DataFrame:
             )
         )
 
-    daily_parts.append(load_forecast_weather(14))
+    daily_parts.append(load_forecast_weather(16))
     df_forecast = pd.concat(daily_parts, axis=0, ignore_index=True)
 
-    df_forecast["weather_date"] = pd.to_datetime(df_forecast["weather_date"])
-    df_forecast["year_week"] = (
-        df_forecast["weather_date"]
-        - pd.to_timedelta(df_forecast["weather_date"].dt.weekday, unit="D")
-    ).dt.strftime("%Y-%m-%d")
-
-    df_forecast_weekly = (
-        df_forecast.groupby("year_week", as_index=False)
-        .agg(
-            max_temp=("temperature_2m_mean", "max"),
-            avg_temp=("temperature_2m_mean", "mean"),
-            min_temp=("temperature_2m_mean", "min"),
-            total_rain=("rain_sum", "sum"),
-            total_snow=("snowfall_sum", "sum"),
-        )
-    )
-
-    df_weather_copy = df_weather.copy()
-    df_weather_copy["weather_date"] = pd.to_datetime(df_weather_copy["weather_date"])
-    df_weather_copy["year_week"] = (
-        df_weather_copy["weather_date"]
-        - pd.to_timedelta(df_weather_copy["weather_date"].dt.weekday, unit="D")
-    ).dt.strftime("%Y-%m-%d")
-
-    weekly_avg = (
-        df_weather_copy.groupby("year_week", as_index=False)
-        .agg(
-            max_temp=("temperature_2m_mean", "max"),
-            avg_temp=("temperature_2m_mean", "mean"),
-            min_temp=("temperature_2m_mean", "min"),
-            total_rain=("rain_sum", "sum"),
-            total_snow=("snowfall_sum", "sum"),
-        )
-    )
+    df_forecast_weekly = _aggregate_complete_weather_weeks(df_forecast)
+    weekly_avg = _aggregate_complete_weather_weeks(df_weather)
     weekly_avg["week"] = pd.to_datetime(weekly_avg["year_week"]).dt.isocalendar().week.astype(int)
     weekly_avg = weekly_avg.groupby("week", as_index=False)[
         ["max_temp", "avg_temp", "min_temp", "total_rain", "total_snow"]
@@ -93,7 +82,6 @@ def get_weekly_weather_forecast_df() -> pd.DataFrame:
 
     for col in ["max_temp", "avg_temp", "min_temp", "total_rain", "total_snow"]:
         df_forecast_weekly[col] = df_forecast_weekly[col].fillna(df_forecast_weekly[f"{col}_avg"])
-        df_forecast_weekly[col] = df_forecast_weekly[col].ffill()
         df_forecast_weekly[col] = df_forecast_weekly[col].fillna(weekly_avg[col].mean())
 
     return df_forecast_weekly[["year_week", "max_temp", "avg_temp", "min_temp", "total_rain", "total_snow"]]
@@ -107,13 +95,24 @@ def fetch_features_xgboost(df: pd.DataFrame, interval: str, model_name: str) -> 
     return X, y, feature_names
 
 
+def prepare_gam_features(df: pd.DataFrame, interval: str, model=None) -> pd.DataFrame:
+    """Use the same derived features and saved column order for fit and predict."""
+    features = df.copy()
+    features["is_classic"] = (features["rideable_type"] == 1).astype(int)
+    features["is_electric"] = (features["rideable_type"] == 2).astype(int)
+    columns = MODEL_FEATURES[interval]["GAM"]
+    if model is not None:
+        # Existing registry versions predate the indicators and their schema tag.
+        legacy_columns = [name for name in columns if name not in GAM_TYPE_INDICATORS]
+        columns = getattr(model, "bike_feature_names_", legacy_columns)
+    return features[columns]
+
+
 def fetch_features_gam(df: pd.DataFrame, interval: str, model_name: str) -> Tuple[np.ndarray, np.ndarray, List[str]]:
     df = _clean_training_frame(df)
-
-    # order matters for GAM since we need to align with the model's expected feature order
-
-    feature_names = MODEL_FEATURES[interval][model_name]
-    X = df[feature_names].to_numpy()
+    features = prepare_gam_features(df, interval)
+    feature_names = list(features.columns)
+    X = features.to_numpy()
     y = df["rides"].to_numpy()
     return X, y, feature_names
 

@@ -6,21 +6,24 @@ from dateutil.relativedelta import relativedelta
 from pygam import PoissonGAM, f, s
 
 
+GAM_TYPE_INDICATORS = ("is_classic", "is_electric")
+
 MODEL_FEATURES = {
     "week": {
         "xgboost": ["rideable_type", "year", "week", "season", "rides_2weeks_ago", "rides_lastweek",
                     "max_temp", "avg_temp", "min_temp", "total_rain", "total_snow"],
-        "GAM": ["rideable_type", "year", "week", "season", "avg_temp", "total_rain", "total_snow"],
+        "GAM": ["rideable_type", "year", "week", "season", "avg_temp", "total_rain", "total_snow",
+                "is_classic", "is_electric"],
     },
     "month": {
         "xgboost": ["rideable_type", "year", "month", "season", "rides_2months_ago", "rides_lastmonth"],
-        "GAM": ["rideable_type", "year", "month", "season"],
+        "GAM": ["rideable_type", "year", "month", "season", "is_classic", "is_electric"],
     },
     "day": {
         "xgboost": ["rideable_type", "year", "month", "season", "day_of_year", "day_of_week", "is_weekend", "temp",
                     "rides_lastday", "total_rain", "total_snow"],
         "GAM": ["rideable_type", "year", "season", "day_of_year", "day_of_week",
-                "temp", "total_rain", "is_snow"],
+                "temp", "total_rain", "is_snow", "is_classic", "is_electric"],
     },
 }
 
@@ -36,6 +39,7 @@ GAM_TERM_BUILDERS: Dict[str, Callable[[int], Any]] = {
     "temp": lambda idx: s(idx),
     "avg_temp": lambda idx: s(idx),
     "total_rain": lambda idx: s(idx),
+    "total_snow": lambda idx: s(idx),
     "is_snow": lambda idx: f(idx),
 }
 
@@ -72,16 +76,25 @@ class IntervalSpec:
 
     def build_gam(self):
         gam_features = self.feature_columns("GAM")
-        missing_features = [feature for feature in gam_features if feature not in GAM_TERM_BUILDERS]
+        missing_features = [feature for feature in gam_features
+                            if feature not in GAM_TERM_BUILDERS and feature not in GAM_TYPE_INDICATORS]
         if missing_features:
             raise ValueError(f"Missing GAM term builders for features: {missing_features}")
 
         terms = None
         for idx, feature in enumerate(gam_features):
-            term = GAM_TERM_BUILDERS[feature](idx)
+            if feature in GAM_TYPE_INDICATORS:
+                continue
+            if feature == "year":
+                term = (s(idx, by=gam_features.index("is_classic"))
+                        + s(idx, by=gam_features.index("is_electric")))
+            else:
+                term = GAM_TERM_BUILDERS[feature](idx)
             terms = term if terms is None else terms + term
 
-        return PoissonGAM(terms)
+        model = PoissonGAM(terms)
+        model.bike_feature_names_ = list(gam_features)
+        return model
 
 
 INTERVAL_SPECS = {

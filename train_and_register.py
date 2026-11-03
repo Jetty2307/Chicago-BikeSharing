@@ -9,15 +9,20 @@ import mlflow.sklearn
 import mlflow.statsmodels
 import mlflow.xgboost
 from mlflow.tracking import MlflowClient
+from model_policy import decide_promotion, REFRESH_MONTHS, MAX_REFRESH_DEGRADATION
 from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 from xgboost import XGBRegressor
 from pygam import GAM, s, f, LogisticGAM, PoissonGAM
 from dataframes_loader import load_dataframe
 from intervals import get_interval_spec, build_interval_mapping
-from ai_agent import make_summary, registry_decision
-from features_inference import fetch_features_xgboost, fetch_features_gam
-from sarima_service import build_sarima_series, fit_sarima_model, forecast_with_fitted_sarima
+from features_inference import fetch_features_xgboost, fetch_features_gam, prepare_gam_features
+from sarima_service import (
+    build_sarima_series,
+    compare_sarima_models,
+    fit_sarima_model,
+    forecast_with_fitted_sarima,
+)
 import os
 import joblib
 import tempfile
@@ -32,11 +37,6 @@ logger = logging.getLogger(__name__)
 training_status = {"status": "not_started"}
 trained_models = {}
 
-mlflow.set_experiment("bikes_rides_forecasting")
-
-PRIMARY_METRIC = "val_rmse"
-MAX_REL_DEGRADATION = 0.05
-LOWER_IS_BETTER = True
 
 
 def log_shap_xgb(best_model, X_background, X_explain, feature_names, prefix = 'shap'):
@@ -84,6 +84,10 @@ def log_gam_term_plots(gam_model, feature_names, X_train, prefix="gam"):
             plt.figure()
 
             feature_idx = term.feature
+            by_idx = getattr(term, "by", None)
+            label = feature_names[feature_idx]
+            if by_idx is not None:
+                label += "_by_" + feature_names[by_idx]
 
             if term.n_splines == 0:
                 categories = np.unique(X_train[:, feature_idx])
@@ -105,6 +109,8 @@ def log_gam_term_plots(gam_model, feature_names, X_train, prefix="gam"):
 
                 XX = np.tile(base, (len(grid), 1))
                 XX[:, feature_idx] = grid
+                if by_idx is not None:
+                    XX[:, by_idx] = 1
 
                 pdep, conf = gam_model.partial_dependence(
                     term=i, X=XX, width=0.95
@@ -115,7 +121,7 @@ def log_gam_term_plots(gam_model, feature_names, X_train, prefix="gam"):
                 plt.plot(grid, conf[:, 1], linestyle="--")
                 plt.xlabel(feature_names[feature_idx])
 
-            plt.title(f"{prefix}_term_{i}")
+            plt.title(f"{prefix}_{label}")
             plt.tight_layout()
 
             path = os.path.join(td, f"{prefix}_term_{i}.png")
@@ -124,28 +130,72 @@ def log_gam_term_plots(gam_model, feature_names, X_train, prefix="gam"):
 
             mlflow.log_artifact(path, artifact_path="explainability")
 
-def _get_baseline_metric(model_name: str, metric_key: str = PRIMARY_METRIC):
+def _get_baseline_info(model_name):
     client = MlflowClient()
+    versions = client.search_model_versions(f"name='{model_name}'")
+    if not versions:
+        return None
+    latest = max(versions, key=lambda v: int(v.version))
+    run = client.get_run(latest.run_id)
+    return {"run_id": latest.run_id, "version": latest.version,
+            "uri": f"models:/{model_name}/{latest.version}", "tags": run.data.tags}
 
-    try:
-        versions = client.search_model_versions(f"name='{model_name}'")
-        if not versions:
-            return None, None, None
-        latest = max(versions, key=lambda v: int(v.version))
-        run = client.get_run(latest.run_id)
-        val = run.data.metrics.get(metric_key)
-        return val, latest.run_id, latest.version
-    except Exception:
-        return None, None, None
 
-def quality_gate_rmse(model_name: str, new_rmse: float, max_rel_degradation: float = MAX_REL_DEGRADATION):
-    baseline_rmse, baseline_run_id, baseline_version = _get_baseline_metric(model_name, PRIMARY_METRIC)
-    if baseline_rmse is None:
-        return True, None, baseline_run_id, baseline_version
+def log_data_boundaries(df, interval, train_index, valid_index):
+    dates = pd.to_datetime(df.loc[train_index, f"year_{interval}"])
+    validation = pd.to_datetime(df.loc[valid_index, f"year_{interval}"])
+    tags = {"train_end_date": dates.max().date().isoformat(),
+            "validation_start_date": validation.min().date().isoformat(),
+            "validation_end_date": validation.max().date().isoformat(),
+            "data_end_date": pd.to_datetime(df[f"year_{interval}"]).max().date().isoformat()}
+    mlflow.set_tags(tags)
+    return tags
 
-    threshold = baseline_rmse * (1.0 + max_rel_degradation)
-    passed = new_rmse <= threshold
-    return passed, baseline_rmse, baseline_run_id, baseline_version
+
+def quality_gate_rmse(model_name, new_rmse, boundaries, baseline, baseline_rmse):
+    baseline_end = None
+    if baseline:
+        baseline_end = baseline["tags"].get("data_end_date")
+        if not baseline_end:
+            # Legacy runs have no reliable data cutoff. Anchor the six-month clock
+            # once, without pretending that the training cutoff is known.
+            baseline_end = baseline["tags"].get("refresh_anchor_data_end")
+            if not baseline_end:
+                baseline_end = boundaries["data_end_date"]
+                MlflowClient().set_tag(baseline["run_id"], "refresh_anchor_data_end", baseline_end)
+            mlflow.set_tag("baseline_date_source", "legacy_refresh_anchor")
+        mlflow.set_tags({"baseline_run_id": baseline["run_id"],
+                         "baseline_version": str(baseline["version"]),
+                         "baseline_data_end_date": baseline_end})
+        mlflow.log_metric("baseline_rmse", baseline_rmse)
+    decision = decide_promotion(new_rmse, baseline_rmse, boundaries["data_end_date"], baseline_end)
+    mlflow.set_tags({"quality_gate_passed": str(decision.passed).lower(),
+                     "promotion_reason": decision.reason,
+                     "refresh_required": str(decision.refresh_required).lower(),
+                     "refresh_months": str(REFRESH_MONTHS),
+                     "max_refresh_degradation": str(MAX_REFRESH_DEGRADATION)})
+    if decision.refresh_required and not decision.passed:
+        logger.warning("Freshness update blocked by quality floor: %s", model_name)
+    return decision
+
+
+def regression_baseline_score(model_name, baseline, X_valid, y_valid, boundaries):
+    if baseline is None:
+        return None
+    train_end = baseline["tags"].get("train_end_date")
+    if train_end and pd.Timestamp(train_end) >= pd.Timestamp(boundaries["validation_start_date"]):
+        raise ValueError(f"Baseline training overlaps validation: {model_name}")
+    if model_name.startswith("xgboost_"):
+        model = mlflow.xgboost.load_model(baseline["uri"])
+        prediction = model.predict(X_valid)
+    else:
+        path = mlflow.artifacts.download_artifacts(baseline["uri"])
+        interval = model_name[len("gam_"):]
+        model = joblib.load(f"{path}/gam_model_{interval}.pkl")
+        frame = pd.DataFrame(X_valid, columns=get_interval_spec(interval).feature_columns("GAM"))
+        prediction = model.predict(prepare_gam_features(frame, interval, model).to_numpy())
+    return float(mean_squared_error(y_valid, prediction, squared=False))
+
 
 def train_all_models(dataframes):
     print("TRAINING STARTED")
@@ -228,7 +278,9 @@ def iter_sarima_configs(period):
         }
 
 
-def apply_registry_decision(model_name, model_params):
+def apply_registry_decision(model_name, model_params, allow_veto=True):
+    from ai_agent import make_summary, registry_decision
+
     description = make_summary(model_params)
     mlflow.set_tag("performance_description", str(description))
 
@@ -236,7 +288,9 @@ def apply_registry_decision(model_name, model_params):
     mlflow.set_tag("ai_registry_decision", decision["decision"].lower())
     mlflow.set_tag("ai_registry_reason", decision["reason"])
 
-    if decision["decision"] == "STOP":
+    mlflow.set_tag("ai_registry_veto_applied", str(allow_veto and decision["decision"] == "STOP").lower())
+
+    if allow_veto and decision["decision"] == "STOP":
         logger.warning(f"[AI REGISTRY STOP] {model_name}: {decision['reason']}")
         return None, description, decision
 
@@ -257,13 +311,17 @@ def train_sarima_model(df, interval):
         best_order = None
         best_seasonal_order = None
         best_metrics = None
+        best_validation_model = None
         successful_configs = 0
         tested_configs = 0
 
-        for config in iter_sarima_configs(interval_spec.period):
+        configs = list(iter_sarima_configs(interval_spec.period))
+        for config in configs:
             tested_configs += 1
             order = config["order"]
             seasonal_order = config["seasonal_order"]
+            logger.info("%s: configuration %d/%d, order=%s, seasonal_order=%s",
+                        model_name, tested_configs, len(configs), order, seasonal_order)
 
             try:
                 fitted_valid_model = fit_sarima_model(
@@ -289,6 +347,7 @@ def train_sarima_model(df, interval):
                 best_order = order
                 best_seasonal_order = seasonal_order
                 best_metrics = metrics
+                best_validation_model = fitted_valid_model
 
         if best_metrics is None:
             raise ValueError(f"No valid SARIMA configuration found for {model_name}")
@@ -305,13 +364,28 @@ def train_sarima_model(df, interval):
         mlflow.log_metric("val_mae", best_metrics["mae"])
         mlflow.log_metric("val_wmape", best_metrics["wmape"])
 
-        passed, baseline_rmse, baseline_run_id, baseline_version = quality_gate_rmse(model_name, best_metrics["rmse"])
-        mlflow.set_tag("quality_gate_passed", str(passed).lower())
-        if baseline_rmse is not None:
-            mlflow.log_metric("baseline_rmse", float(baseline_rmse))
-            mlflow.set_tag("baseline_run_id", str(baseline_run_id))
-            mlflow.set_tag("baseline_version", str(baseline_version))
-        mlflow.set_tag("max_rel_degradation", str(MAX_REL_DEGRADATION))
+        boundaries = {
+            "train_end_date": train.index.max().date().isoformat(),
+            "validation_start_date": valid.index.min().date().isoformat(),
+            "validation_end_date": valid.index.max().date().isoformat(),
+            "data_end_date": series.index.max().date().isoformat(),
+        }
+        mlflow.set_tags(boundaries)
+        baseline = _get_baseline_info(model_name)
+        baseline_rmse = None
+        comparison_rmse = best_metrics["rmse"]
+        if baseline:
+            old = mlflow.statsmodels.load_model(baseline["uri"])
+            comparison = compare_sarima_models(
+                candidate=best_validation_model, baseline=old, series=series, validation=valid,
+            )
+            baseline_rmse = comparison.baseline_rmse
+            comparison_rmse = comparison.candidate_rmse
+            baseline["tags"].setdefault("data_end_date", comparison.baseline_data_end.date().isoformat())
+            mlflow.set_tag("comparison_start_date", comparison.comparison_start.date().isoformat())
+        mlflow.log_metric("comparison_rmse", comparison_rmse)
+        promotion = quality_gate_rmse(model_name, comparison_rmse, boundaries, baseline, baseline_rmse)
+        passed = promotion.passed
 
         if not passed:
             logger.warning(f"[GATE FAIL] {model_name}: val_rmse={best_metrics['rmse']:.4f} worse than baseline={baseline_rmse:.4f}")
@@ -331,7 +405,9 @@ def train_sarima_model(df, interval):
             "wmape": best_metrics["wmape"],
         }
 
-        approved, description, decision = apply_registry_decision(model_name, model_params)
+        approved, description, decision = apply_registry_decision(
+            model_name, model_params, allow_veto=not promotion.refresh_required,
+        )
         if not approved:
             return None
 
@@ -341,6 +417,7 @@ def train_sarima_model(df, interval):
             seasonal_order=best_seasonal_order,
         )
 
+        mlflow.set_tag("train_end_date", series.index.max().date().isoformat())
         mlflow.statsmodels.log_model(final_model, artifact_path="model")
         run_id = run.info.run_id
 
@@ -394,13 +471,11 @@ def fit_xgboost(df, interval):
         mlflow.log_metric("val_rmse", float(val_rmse))
         mlflow.log_metric("val_r2", float(val_r2))
 
-        passed, baseline_rmse, baseline_run_id, baseline_version = quality_gate_rmse(model_name, float(val_rmse))
-        mlflow.set_tag("quality_gate_passed", str(passed).lower())
-        if baseline_rmse is not None:
-            mlflow.log_metric("baseline_rmse", float(baseline_rmse))
-            mlflow.set_tag("baseline_run_id", str(baseline_run_id))
-            mlflow.set_tag("baseline_version", str(baseline_version))
-        mlflow.set_tag("max_rel_degradation", str(MAX_REL_DEGRADATION))
+        boundaries = log_data_boundaries(df, interval, X_train.index, X_valid.index)
+        baseline = _get_baseline_info(model_name)
+        baseline_rmse = regression_baseline_score(model_name, baseline, X_valid, y_valid, boundaries)
+        promotion = quality_gate_rmse(model_name, float(val_rmse), boundaries, baseline, baseline_rmse)
+        passed = promotion.passed
 
         if not passed:
             logger.warning(f"[GATE FAIL] {model_name}: val_rmse={val_rmse:.4f} worse than baseline={baseline_rmse:.4f}")
@@ -417,7 +492,9 @@ def fit_xgboost(df, interval):
                         'rmse': val_rmse,
                         'r2': val_r2}
 
-        approved, description, decision = apply_registry_decision(model_name, model_params)
+        approved, description, decision = apply_registry_decision(
+            model_name, model_params, allow_veto=not promotion.refresh_required,
+        )
         if not approved:
             return None
 
@@ -450,6 +527,7 @@ def fit_GAM(df, interval):
     # logger.debug(f"Columns: {df.columns}")
     interval_spec = get_interval_spec(interval)
 
+    cleaned_df = df.copy().replace([np.inf, -np.inf], np.nan).dropna()
     X, y, feature_names = fetch_features_gam(df, interval, model_name="GAM")
     logger.debug(f"Features: {feature_names}")
     # "rideable_type", "year", interval, "season", "avg_temp", "total_rain", "total_snow"
@@ -469,18 +547,19 @@ def fit_GAM(df, interval):
     with mlflow.start_run(run_name=f"gam_{interval}") as run:
         mlflow.log_param("interval", interval)
         mlflow.log_param("model_type", "GAM")
+        mlflow.log_param("gam_year_trend", "by_rideable_type")
+        mlflow.log_param("gam_feature_names", ",".join(feature_names))
         mlflow.log_metric("val_rmse", float(val_rmse))
         mlflow.log_metric("val_r2", float(val_r2))
 
-        passed, baseline_rmse, baseline_run_id, baseline_version = quality_gate_rmse(model_name, float(val_rmse))
-        mlflow.set_tag("quality_gate_passed", str(passed).lower())
-        if baseline_rmse is not None:
-            mlflow.log_metric("baseline_val_rmse", float(baseline_rmse))
-            mlflow.set_tag("baseline_run_id", str(baseline_run_id))
-            mlflow.set_tag("baseline_version", str(baseline_version))
-        mlflow.set_tag("max_rel_degradation", str(MAX_REL_DEGRADATION))
-
-        passed = True
+        boundaries = log_data_boundaries(
+            cleaned_df, interval, cleaned_df.index[:len(X_train)],
+            cleaned_df.index[len(X_train):len(X_train) + len(X_valid)],
+        )
+        baseline = _get_baseline_info(model_name)
+        baseline_rmse = regression_baseline_score(model_name, baseline, X_valid, y_valid, boundaries)
+        promotion = quality_gate_rmse(model_name, float(val_rmse), boundaries, baseline, baseline_rmse)
+        passed = promotion.passed
 
         if not passed:
             logger.warning(f"[GATE FAIL] {model_name}: val_rmse={val_rmse:.4f} \
@@ -495,7 +574,9 @@ def fit_GAM(df, interval):
                         'rmse': val_rmse,
                         'r2': val_r2}
 
-        approved, description, decision = apply_registry_decision(model_name, model_params)
+        approved, description, decision = apply_registry_decision(
+            model_name, model_params, allow_veto=not promotion.refresh_required,
+        )
         if not approved:
             return None
 
@@ -522,14 +603,16 @@ def fit_GAM(df, interval):
 
     return model
 
-df_day = load_dataframe(os.environ["DAY_FILE"])
-df_week = load_dataframe(os.environ["WEEK_FILE"])
-df_month = load_dataframe(os.environ["MONTH_FILE"])
+if __name__ == "__main__":
+    mlflow.set_experiment("bikes_rides_forecasting")
+    df_day = load_dataframe(os.environ["DAY_FILE"])
+    df_week = load_dataframe(os.environ["WEEK_FILE"])
+    df_month = load_dataframe(os.environ["MONTH_FILE"])
 
-print(">>> STARTUP EVENT TRIGGERED <<<")
-train_all_models({
-    "day": df_day,
-    #"week": df_week,
-    #"month": df_month,
-})
-print(">>> TRAINING COMPLETED<<<")
+    print(">>> STARTUP EVENT TRIGGERED <<<")
+    train_all_models({
+        "day": df_day,
+        "week": df_week,
+        "month": df_month,
+    })
+    print(">>> TRAINING COMPLETED<<<")

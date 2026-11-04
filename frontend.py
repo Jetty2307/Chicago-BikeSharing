@@ -8,17 +8,15 @@ st.set_page_config(layout="wide")
 # Streamlit UI Layout
 st.title("Chicago Bike Sharing Forecast Application")
 
-col1, col2 = st.columns(2, gap="large")
-
 # Initialize session state
 if "selected_interval" not in st.session_state:
     st.session_state.selected_interval = "month"  # Default interval set to monthly
 
-if "forecast_weeks" not in st.session_state:
+if "forecast" not in st.session_state:
     st.session_state.forecast = 12  # Default forecast duration (months)
 
-if "selected_model" not in st.session_state:
-    st.session_state.selected_model = None
+if "selected_model" not in st.session_state or st.session_state.selected_model is None:
+    st.session_state.selected_model = "forecast_bikes_gam"
 
 if "selected_forecast_date" not in st.session_state:
     st.session_state.selected_forecast_date = None
@@ -33,28 +31,49 @@ if "lookback" not in st.session_state:
     st.session_state.lookback = 3 # default lookback
 
 
-# **Step 1: Select Interval (Daily / Weekly / Monthly)**
-day_col, week_col, month_col = st.columns(3, gap="large")
+def select_interval(interval):
+    if interval == "day" and st.session_state.selected_model == "forecast_bikes_sarima":
+        return
+    st.session_state.selected_interval = interval
+    st.session_state.slider_moved = False
+    maximum = {"day": 1, "week": 104, "month": 60}[interval]
+    st.session_state.forecast = min(max(1, st.session_state.forecast), maximum)
 
-with day_col:
-    if st.button("Daily"):
-        st.session_state.selected_interval = "day"
-        st.session_state.slider_moved = False
 
-with week_col:
-    if st.button("Weekly"):
-        st.session_state.selected_interval = "week"
-        st.session_state.slider_moved = False  # Reset slider tracking
+def select_model(endpoint):
+    if endpoint == "forecast_bikes_sarima" and st.session_state.selected_interval == "day":
+        return
+    st.session_state.selected_model = endpoint
 
-with month_col:
-    if st.button("Monthly"):
-        st.session_state.selected_interval = "month"
-        st.session_state.slider_moved = False  # Reset slider tracking
+
+# Recover an incompatible selection left in an existing browser session.
+if (st.session_state.selected_interval == "day"
+        and st.session_state.selected_model == "forecast_bikes_sarima"):
+    st.session_state.selected_model = "forecast_bikes_gam"
+
+
+# Callbacks update selection before rendering, so highlights change on one click.
+for column, (label, interval) in zip(
+    st.columns(3, gap="large"),
+    [("Daily", "day"), ("Weekly", "week"), ("Monthly", "month")],
+):
+    with column:
+        st.button(
+            label,
+            key=f"interval_{interval}",
+            type="primary" if st.session_state.selected_interval == interval else "secondary",
+            disabled=interval == "day" and st.session_state.selected_model == "forecast_bikes_sarima",
+            on_click=select_interval,
+            args=(interval,),
+        )
 
 # **Step 2: Adjust the Forecast Slider (Enforced)**
 if st.session_state.selected_interval == "day":
-    dates_response = requests.get("http://fastapi:8003/daily_forecast_dates")
-    if dates_response.status_code != 200:
+    try:
+        dates_response = requests.get("http://fastapi:8003/daily_forecast_dates", timeout=30)
+    except requests.RequestException:
+        dates_response = None
+    if dates_response is None or dates_response.status_code != 200:
         st.error("Could not load available daily pseudo-forecast dates.")
     else:
         selectable_forecast_days = dates_response.json().get("dates", [])
@@ -101,7 +120,11 @@ def fetch_and_display_forecast(endpoint):
     if st.session_state.selected_interval == "day":
         payload["forecast_date"] = st.session_state.selected_forecast_date
 
-    response = requests.post(f"http://fastapi:8003/{endpoint}", json=payload)
+    try:
+        response = requests.post(f"http://fastapi:8003/{endpoint}", json=payload, timeout=30)
+    except requests.RequestException:
+        st.error("Forecast service is unavailable. Please try again shortly.")
+        return
 
     if response.status_code == 200:
         data = response.json()
@@ -168,31 +191,21 @@ def fetch_and_display_forecast(endpoint):
     else:
         st.error("Error fetching data. Please check the data.")
 
-# **Step 4: Model Selection (Triggers Calculation Only When Button is Pressed)**
-if st.session_state.selected_interval == "day":
-    model_col1, model_col2 = st.columns(2, gap="small")
-
-    with model_col1:
-        if st.button("GAM"):
-            st.session_state.selected_model = "forecast_bikes_gam"
-
-    with model_col2:
-        if st.button("XGBoost"):
-            st.session_state.selected_model = "forecast_bikes_xgboost"
-else:
-    col1, col2, col3 = st.columns(3, gap="small")
-
-    with col1:
-        if st.button("SARIMA"):
-            st.session_state.selected_model = "forecast_bikes_sarima"
-
-    with col2:
-        if st.button("GAM"):
-            st.session_state.selected_model = "forecast_bikes_gam"
-
-    with col3:
-        if st.button("XGBoost"):
-            st.session_state.selected_model = "forecast_bikes_xgboost"
+# Keep all models visible; unsupported combinations are disabled.
+for column, (label, endpoint) in zip(
+    st.columns(3, gap="small"),
+    [("SARIMA", "forecast_bikes_sarima"), ("GAM", "forecast_bikes_gam"),
+     ("XGBoost", "forecast_bikes_xgboost")],
+):
+    with column:
+        st.button(
+            label,
+            key=endpoint,
+            type="primary" if st.session_state.selected_model == endpoint else "secondary",
+            disabled=endpoint == "forecast_bikes_sarima" and st.session_state.selected_interval == "day",
+            on_click=select_model,
+            args=(endpoint,),
+        )
 
 
 # **Trigger Forecast Calculation**

@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the application code
 COPY frontend.py .
+COPY .streamlit/config.toml .streamlit/config.toml
 
 # Expose the Streamlit default port
 EXPOSE 8503

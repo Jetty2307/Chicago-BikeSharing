@@ -5,6 +5,7 @@ from typing import Any, Optional, Tuple
 import numpy as np
 import pandas as pd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
+from threadpoolctl import threadpool_limits
 
 
 logger = logging.getLogger(__name__)
@@ -15,6 +16,38 @@ class SarimaForecastResult:
     historical: pd.DataFrame
     forecast: pd.Series
     fitted_model: Any
+
+
+@dataclass(frozen=True)
+class SarimaComparisonResult:
+    candidate_rmse: float
+    baseline_rmse: float
+    comparison_start: pd.Timestamp
+    baseline_data_end: pd.Timestamp
+
+
+def compare_sarima_models(candidate, baseline, series: pd.Series,
+                          validation: pd.Series) -> SarimaComparisonResult:
+    """Score fixed coefficients on the same unseen dates and observed history."""
+    baseline_data_end = pd.Timestamp(baseline.model._index[-1])
+    unseen = validation.loc[validation.index > baseline_data_end]
+    if unseen.empty:
+        raise ValueError("No unseen validation dates for baseline SARIMA")
+
+    comparison_start = unseen.index.min()
+    observations = np.log1p(series.loc[series.index < comparison_start])
+    baseline_state = baseline.apply(observations, refit=False)
+    candidate_state = candidate.apply(observations, refit=False)
+    baseline_forecast = forecast_with_fitted_sarima(baseline_state, len(unseen))
+    candidate_forecast = forecast_with_fitted_sarima(candidate_state, len(unseen))
+
+    actual = unseen.to_numpy()
+    return SarimaComparisonResult(
+        candidate_rmse=float(np.sqrt(np.mean((actual - candidate_forecast.to_numpy()) ** 2))),
+        baseline_rmse=float(np.sqrt(np.mean((actual - baseline_forecast.to_numpy()) ** 2))),
+        comparison_start=comparison_start,
+        baseline_data_end=baseline_data_end,
+    )
 
 
 def build_sarima_series(dataframe: pd.DataFrame, interval: str, timeframe) -> Tuple[pd.DataFrame, pd.Series]:
@@ -55,7 +88,9 @@ def fit_sarima_model(
         enforce_invertibility=False,
     )
 
-    return model.fit(disp=False)
+    # Small state-space matrices are slower with many competing BLAS threads.
+    with threadpool_limits(limits=1, user_api="blas"):
+        return model.fit(disp=False)
 
 
 def forecast_with_fitted_sarima(results, steps: int) -> pd.Series:

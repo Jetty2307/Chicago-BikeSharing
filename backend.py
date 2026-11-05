@@ -14,6 +14,7 @@ from features_inference import (
     generate_next_vector,
     get_weekly_weather_forecast_df,
     initialize_forecast_state,
+    prepare_gam_features,
     update_forecast_state,
 )
 
@@ -128,8 +129,11 @@ def make_prediction(timeframe, steps, regr_model, rideable_type, model_key):
                 raise ValueError(f"Weekly weather forecast not found for {state['current_year_interval']}")
             input_features = date_features.merge(weather_features, on="year_week", how="left")
 
-        input_features = input_features[timeframe.feature_columns(model_key)]
-        predicted_ride_id_count = regr_model.predict(input_features)[0]
+        if model_key == "GAM":
+            model_input = prepare_gam_features(input_features, timeframe.name, regr_model).to_numpy()
+        else:
+            model_input = input_features[timeframe.feature_columns(model_key)]
+        predicted_ride_id_count = regr_model.predict(model_input)[0]
 
         forecast_data.append({
             'rideable_type': state["rideable_type"],
@@ -269,8 +273,10 @@ def forecast_rides_daily_pseudo(request: ForecastRequest, model, timeframe, desc
 
         input_features = target_for_type.iloc[[0]].copy()
 
-        feature_frame = input_features[timeframe.feature_columns(model_key)]
-        model_input = feature_frame.to_numpy() if model_key == "GAM" else feature_frame
+        if model_key == "GAM":
+            model_input = prepare_gam_features(input_features, timeframe.name, model).to_numpy()
+        else:
+            model_input = input_features[timeframe.feature_columns(model_key)]
         predicted_rides = model.predict(model_input)[0]
 
         forecast_parts.append({

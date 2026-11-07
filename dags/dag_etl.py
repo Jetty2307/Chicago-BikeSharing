@@ -18,6 +18,7 @@ from zipfile import ZipFile
 import pandas as pd
 from sqlalchemy import create_engine
 from dotenv import load_dotenv
+from etl_sql import build_merged_upsert_sql
 
 load_dotenv()
 
@@ -178,7 +179,7 @@ def load_csvs(**context):
 def generate_union_sqls(**context):
     """
     Generates two SQL files based on newly loaded table names:
-    - SQL_PATH_MERGE: INSERT INTO merged ... UNION ALL SELECT ... FROM each table
+    - SQL_PATH_MERGE: UPSERT new rides by ride_id, deduplicating the batch first
     - SQL_PATH_CHUNK: CREATE TABLE IF NOT EXISTS last_one AS ... UNION ALL SELECT ...
     """
     ti = context["ti"]
@@ -191,17 +192,7 @@ def generate_union_sqls(**context):
     if not table_names:
         raise AirflowSkipException("No tables to include in SQL generation.")
 
-    insert_sql = (
-        "INSERT INTO merged (ride_id, rideable_type, started_at)\n"
-        + "\nUNION ALL\n".join(
-            [
-                'SELECT ride_id::TEXT, rideable_type::TEXT, started_at::TIMESTAMP '
-                f'FROM "{t}"'
-                for t in table_names
-            ]
-        )
-        + ";"
-    )
+    insert_sql = build_merged_upsert_sql(table_names)
 
     union_sql = (
         "CREATE TABLE IF NOT EXISTS last_one AS\n"
@@ -286,6 +277,7 @@ with DAG(
     default_args=default_args,
     description="Load data from Divvy and transform them monthly (staging + commit)",
     catchup=False,
+    max_active_runs=1,  # Generated SQL templates are shared between runs.
     tags=["divvy", "monthly"],
 ) as dag:
 

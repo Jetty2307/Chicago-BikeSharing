@@ -276,7 +276,7 @@ with DAG(
     schedule_interval="@monthly",
     default_args=default_args,
     description="Load data from Divvy and transform them monthly (staging + commit)",
-    catchup=False,
+    catchup=True,
     max_active_runs=1,  # Generated SQL templates are shared between runs.
     tags=["divvy", "monthly"],
 ) as dag:
